@@ -9,7 +9,7 @@ use tokio::task::JoinSet;
 
 use crate::{ingestion::pipeline, models::paths::pdf::PdfPath};
 
-const PARALLELISM: usize = 4;
+const PARALLELISM: usize = 10;
 const PROGRESS_WIDTH: usize = 24;
 
 pub struct RunSummary {
