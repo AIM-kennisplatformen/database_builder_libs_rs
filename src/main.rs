@@ -11,13 +11,16 @@ struct Args {
     #[arg(value_name = "pdf-path", value_parser = PathBufValueParser::new().try_map(PdfPath::try_from))]
     pdf_path: PdfPath,
 
-    #[arg(value_name = "output-dir")]
-    output_dir: PathBuf,
+    #[arg(value_name = "tei-xml-dir")]
+    tei_xml_dir: PathBuf,
+
+    #[arg(value_name = "json-dir")]
+    json_dir: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    pipeline::run(args.pdf_path, args.output_dir).await
+    pipeline::run(args.pdf_path, args.tei_xml_dir, args.json_dir).await
 }
