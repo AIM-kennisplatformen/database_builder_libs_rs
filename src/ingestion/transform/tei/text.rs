@@ -78,6 +78,7 @@ pub fn inline_text(inline: &[Inline]) -> Option<String> {
         .iter()
         .filter_map(|node| match node {
             Inline::Text(text) => Some(text.clone()),
+            Inline::Paragraph(paragraph) => paragraph_text(paragraph),
             Inline::Reference(reference) => inline_text(&reference.content),
             Inline::ReferencingString(rs) => inline_text(&rs.content),
             Inline::Highlighted(highlighted) => inline_text(&highlighted.content),
@@ -112,5 +113,86 @@ pub fn push_unique(values: &mut Vec<String>, value: Option<String>) {
 
     if !values.contains(&value) {
         values.push(value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paragraph_text;
+    use crate::models::tei::{TeiDocument, text::Block};
+
+    #[test]
+    fn parses_grobid_footnote_with_nested_paragraph() {
+        let xml = r#"
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt/>
+      <publicationStmt/>
+      <sourceDesc/>
+    </fileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <note place="foot" n="3" xml:id="foot_0"><p>For successful programmes.</p></note>
+    </body>
+  </text>
+</TEI>
+"#;
+
+        let document: TeiDocument = quick_xml::de::from_str(xml).unwrap();
+        let body = document.text.as_ref().unwrap().body.as_ref().unwrap();
+
+        let Block::Note(note) = &body.content[0] else {
+            panic!("expected footnote block");
+        };
+
+        assert_eq!(
+            paragraph_text(note).as_deref(),
+            Some("For successful programmes.")
+        );
+    }
+
+    #[test]
+    fn parses_grobid_block_level_formula_and_reference() {
+        let xml = r##"
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt/>
+      <publicationStmt/>
+      <sourceDesc/>
+    </fileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <div>
+        <formula xml:id="formula_0">%t = PR/TP (<label>1</label></formula>
+        <ref type="formula">COM(2015) 339. (2015</ref>
+      </div>
+    </body>
+  </text>
+</TEI>
+"##;
+
+        let document: TeiDocument = quick_xml::de::from_str(xml).unwrap();
+        let body = document.text.as_ref().unwrap().body.as_ref().unwrap();
+
+        let Block::Division(division) = &body.content[0] else {
+            panic!("expected division");
+        };
+
+        let Block::Formula(formula) = &division.content[0] else {
+            panic!("expected formula block");
+        };
+        assert_eq!(formula.text.as_deref(), Some("%t = PR/TP ("));
+
+        let Block::Reference(reference) = &division.content[1] else {
+            panic!("expected reference block");
+        };
+        assert_eq!(
+            super::inline_text(&reference.content).as_deref(),
+            Some("COM(2015) 339. (2015")
+        );
     }
 }

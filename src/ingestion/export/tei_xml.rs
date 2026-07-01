@@ -7,17 +7,21 @@ pub fn write_tei_xml(path: &TeiXmlPath, tei_xml: &str) -> Result<(), Error> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
-        fs::create_dir_all(parent).map_err(|error| {
-            eprintln!(
-                "Failed to create TEI XML output directory at {}: {error}",
-                parent.display()
-            );
-            Error::other(error)
+        fs::create_dir_all(parent).map_err(|source| {
+            Error::new(
+                source.kind(),
+                format!(
+                    "failed to create TEI XML output directory at {}: {source}",
+                    parent.display()
+                ),
+            )
         })?;
     }
 
-    fs::write(path.as_path(), tei_xml).map_err(|error| {
-        eprintln!("Failed to write TEI XML to {}: {error}", path.display());
-        Error::other(error)
+    fs::write(path.as_path(), tei_xml).map_err(|source| {
+        Error::new(
+            source.kind(),
+            format!("failed to write TEI XML to {}: {source}", path.display()),
+        )
     })
 }

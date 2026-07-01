@@ -68,6 +68,12 @@ pub enum Block {
     #[serde(rename = "note")]
     Note(Paragraph),
 
+    #[serde(rename = "ref")]
+    Reference(Reference),
+
+    #[serde(rename = "formula")]
+    Formula(Formula),
+
     #[serde(rename = "$text")]
     Text(String),
 }
@@ -137,6 +143,9 @@ pub struct Head {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Inline {
+    #[serde(rename = "p")]
+    Paragraph(Box<Paragraph>),
+
     #[serde(rename = "ref")]
     Reference(Reference),
 
