@@ -1,0 +1,7 @@
+services:
+  grobid:
+    image: grobid/grobid:0.9.0-crf
+    container_name: kp-grobid
+    ports:
+      - "8070:8070"
+    restart: unless-stopped
