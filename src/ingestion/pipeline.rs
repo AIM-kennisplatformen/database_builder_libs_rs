@@ -4,6 +4,7 @@ use crate::{
     ingestion::{
         extract::grobid::{config::GrobidConfig, source::GrobidSource},
         parse::tei::reader::parse_tei_xml_path,
+        transform::tei::paper_from_tei,
     },
     models::paths::pdf::PdfPath,
 };
@@ -25,16 +26,19 @@ pub async fn run(pdf_path: PdfPath, tei_xml_dir: PathBuf) -> Result<(), Error> {
         }
     };
 
-    let tei_document = parse_tei_xml_path(&tei_xml_path);
-
-    match tei_document {
-        Ok(_) => {
+    let tei_document = match parse_tei_xml_path(&tei_xml_path) {
+        Ok(document) => {
             println!("Transformed TEI XML into tei document");
-            Ok(())
+            document
         }
         Err(error) => {
             eprintln!("Failed to parse TEI XML: {error}");
-            Err(Error::other(error))
+            return Err(Error::other(error));
         }
-    }
+    };
+
+    let _ = paper_from_tei(&tei_document);
+    println!("Transformed tei document to domain paper");
+
+    Ok(())
 }
