@@ -1,11 +1,7 @@
-use std::{
-    fs,
-    io::{Error, ErrorKind},
-    path::{Path, PathBuf},
-};
+use std::{io::Error, path::PathBuf, process::ExitCode};
 
 use clap::Parser;
-use database_builder_scepa_rs::{ingestion::pipeline, models::paths::pdf::PdfPath};
+use database_builder_scepa_rs::ingestion::batch;
 
 #[derive(Parser)]
 struct Args {
@@ -19,62 +15,24 @@ struct Args {
     json_dir: PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    let args = Args::parse();
-
-    if args.pdf_source.is_dir() {
-        for pdf_path in pdf_paths_in_dir(&args.pdf_source)? {
-            pipeline::run(pdf_path, args.tei_xml_dir.clone(), args.json_dir.clone()).await?;
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() -> ExitCode {
+    match run_cli().await {
+        Ok(exit_code) => exit_code,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
         }
-
-        return Ok(());
     }
-
-    let pdf_path = PdfPath::try_from(args.pdf_source)
-        .map_err(|error| Error::new(ErrorKind::InvalidInput, error))?;
-
-    pipeline::run(pdf_path, args.tei_xml_dir, args.json_dir).await
 }
 
-fn pdf_paths_in_dir(pdf_dir: &Path) -> Result<Vec<PdfPath>, Error> {
-    let entries = fs::read_dir(pdf_dir).map_err(|source| {
-        Error::new(
-            source.kind(),
-            format!(
-                "failed to read PDF directory {}: {source}",
-                pdf_dir.display()
-            ),
-        )
-    })?;
+async fn run_cli() -> Result<ExitCode, Error> {
+    let args = Args::parse();
 
-    let mut pdf_paths = Vec::new();
-
-    for entry in entries {
-        let path = entry
-            .map_err(|source| {
-                Error::new(
-                    source.kind(),
-                    format!("failed to read entry in {}: {source}", pdf_dir.display()),
-                )
-            })?
-            .path();
-
-        if path.is_file()
-            && let Ok(pdf_path) = PdfPath::try_from(path)
-        {
-            pdf_paths.push(pdf_path);
-        }
+    let summary = batch::run_source(args.pdf_source, args.tei_xml_dir, args.json_dir).await?;
+    if summary.has_failures() {
+        Ok(ExitCode::FAILURE)
+    } else {
+        Ok(ExitCode::SUCCESS)
     }
-
-    pdf_paths.sort_by(|left, right| left.as_path().cmp(right.as_path()));
-
-    if pdf_paths.is_empty() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            format!("PDF directory contains no PDF files: {}", pdf_dir.display()),
-        ));
-    }
-
-    Ok(pdf_paths)
 }
