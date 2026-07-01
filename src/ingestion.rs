@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod export;
 pub mod extract;
 pub mod parse;
