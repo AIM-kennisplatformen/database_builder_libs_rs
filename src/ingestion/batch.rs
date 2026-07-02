@@ -271,11 +271,9 @@ impl fmt::Display for PdfCount {
 }
 
 fn progress_bar(completed: usize, total: usize) -> String {
-    let filled = if total == 0 {
-        PROGRESS_WIDTH
-    } else {
-        completed * PROGRESS_WIDTH / total
-    };
+    let filled = (completed * PROGRESS_WIDTH)
+        .checked_div(total)
+        .unwrap_or(PROGRESS_WIDTH);
     format!(
         "{}{}",
         "#".repeat(filled),
