@@ -45,6 +45,9 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 ## Local Services
 
 GROBID is required for the current PDF-to-JSON flow and is expected at `http://localhost:8070`.
+The TypeDB metadata schema lives at `schemas/typedb/domain.tql` and is exposed as
+`database_builder_scepa_rs::stores::typedb::DOMAIN_SCHEMA` for store configuration.
+Chunk-level content, embeddings, and bounding boxes are expected to live in Qdrant payloads.
 
 ```sh
 docker compose up -d

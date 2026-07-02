@@ -1,0 +1,111 @@
+define
+
+# ----------------- ATTRIBUTES -----------------
+attribute source, value string;
+attribute title, value string;
+attribute publishing-date, value date;
+attribute issn, value string;
+attribute isbn, value string;
+attribute doi, value string;
+attribute forename, value string;
+attribute surname, value string;
+attribute project-name, value string;
+attribute project-number, value integer;
+
+# ----------------- ENTITIES -----------------
+
+# LITERATURE
+entity literature @abstract,
+  owns source @card(1..),
+  owns title @card(1),
+  owns publishing-date @card(0..1),
+  owns issn @card(0..1),
+  owns isbn @card(0..1),
+  plays authoring:literature @card(1..),
+  plays project-literature:literature @card(0..),
+  plays reference:literature,
+  plays publication:literature;
+
+entity scientific-literature sub literature,
+  owns doi @card(0..1);
+
+entity project-reports sub literature;
+
+entity grey-literature sub literature;
+
+entity survey sub literature;
+
+entity book sub literature;
+
+entity book-chapter sub literature;
+
+# INSTITUTION
+entity institution,
+  owns source @card(1..),
+  plays institutional-structure:institution @card(0..),
+  plays affiliation:institution,
+  plays publication:publisher @card(0..),
+  plays research-activity:institution;
+
+entity government-institution sub institution;
+
+entity semi-government-institution sub institution;
+
+entity knowledge-institution sub institution;
+
+entity university sub knowledge-institution;
+
+entity university-of-applied-sciences sub knowledge-institution;
+
+entity department,
+  owns source @card(1..),
+  owns name @card(1..);
+
+# PERSON
+entity person,
+  owns source @card(1..),
+  owns forename @card(0..1),
+  owns surname @card(0..1),
+  plays affiliation:author @card(0..);
+
+entity author sub person,
+  plays authoring:author,
+  plays reference:author;
+
+# PROJECT
+entity project,
+  owns source @card(1..),
+  owns project-name @card(0..1),
+  owns project-number @card(0..1),
+  plays research-activity:project @card(0..),
+  plays project-literature:project @card(0..);
+
+# ----------------- RELATIONS -----------------
+
+relation affiliation,
+  relates author,
+  relates institution;
+
+relation authoring,
+  relates literature,
+  relates author;
+
+relation research-activity,
+  relates institution,
+  relates project;
+
+relation project-literature,
+  relates project,
+  relates literature;
+
+relation reference,
+  relates literature,
+  relates author;
+
+relation publication,
+  relates literature,
+  relates publisher;
+
+relation institutional-structure,
+  relates department,
+  relates institution;
