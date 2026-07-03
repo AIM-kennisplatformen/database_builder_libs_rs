@@ -1,5 +1,5 @@
 use crate::models::{
-    domain::CoreMetadata,
+    domain::PaperMetadata,
     tei::{
         bibliography::BiblStruct,
         document::TeiDocument,
@@ -16,16 +16,7 @@ use super::{
     },
 };
 
-pub fn core_metadata_from_tei(
-    document: &TeiDocument,
-    source_bibl: Option<&BiblStruct>,
-) -> CoreMetadata {
-    let title = first_title_text(&document.header.file_desc.title_stmt.titles).or_else(|| {
-        source_bibl
-            .and_then(|bibl| bibl.analytic.as_ref())
-            .and_then(|analytic| first_title_text(&analytic.titles))
-    });
-
+pub fn paper_metadata_from_tei(document: &TeiDocument) -> PaperMetadata {
     let abstract_text = document
         .header
         .profile_desc
@@ -43,8 +34,7 @@ pub fn core_metadata_from_tei(
         collect_funding_from_text_part(back, &mut funding_statements);
     }
 
-    CoreMetadata {
-        title,
+    PaperMetadata {
         abstract_text,
         keywords: document
             .header
@@ -54,7 +44,22 @@ pub fn core_metadata_from_tei(
             .unwrap_or_default(),
         funding_statements,
         acknowledgements: acknowledgements_from_tei(document),
+        journal: None,
+        volume: None,
+        issue: None,
+        pages: None,
     }
+}
+
+pub fn literature_title_from_tei(
+    document: &TeiDocument,
+    source_bibl: Option<&BiblStruct>,
+) -> Option<String> {
+    first_title_text(&document.header.file_desc.title_stmt.titles).or_else(|| {
+        source_bibl
+            .and_then(|bibl| bibl.analytic.as_ref())
+            .and_then(|analytic| first_title_text(&analytic.titles))
+    })
 }
 
 fn abstract_text(abstract_: &Abstract) -> Option<String> {

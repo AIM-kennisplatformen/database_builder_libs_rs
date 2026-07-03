@@ -1,15 +1,15 @@
 use serde::Serialize;
 
 use super::{
-    author::Author, content::DocumentContent, metadata::CoreMetadata, pdf::PdfExtractionData,
-    publication::PublicationContext,
+    content::DocumentContent, graph::PaperGraph, metadata::PaperMetadata, pdf::PdfExtractionData,
+    source::SourceHash,
 };
 
-#[derive(Clone, Debug, PartialEq, Serialize, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Paper {
-    pub core: CoreMetadata,
-    pub publication: PublicationContext,
-    pub authors: Vec<Author>,
+    pub source: SourceHash,
+    pub graph: PaperGraph,
+    pub metadata: PaperMetadata,
     pub content: DocumentContent,
     pub extraction_data: PdfExtractionData,
 }

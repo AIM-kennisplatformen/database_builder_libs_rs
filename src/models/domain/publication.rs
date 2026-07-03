@@ -8,11 +8,11 @@ pub struct PublicationIds {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Default)]
-pub struct PublicationContext {
+pub struct PublicationDetails {
     pub identifiers: PublicationIds,
     pub publisher: Option<String>,
     pub journal: Option<String>,
-    pub date: Option<PublicationDate>,
+    pub publishing_date: Option<PublicationDate>,
     pub volume: Option<String>,
     pub issue: Option<String>,
     pub pages: Option<String>,

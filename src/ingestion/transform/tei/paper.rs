@@ -1,27 +1,38 @@
 use crate::models::{
-    domain::{Paper, PdfExtractionData},
+    domain::{
+        Affiliation, Authoring, Department, Institution, InstitutionKind, Literature,
+        LiteratureCore, Paper, PaperGraph, PdfExtractionData, Publication, PublicationDetails,
+        ScientificLiterature, SourceHash,
+    },
     tei::{bibliography::BiblStruct, document::TeiDocument},
 };
 
 use super::{
-    authors::authors_from_tei, content::document_content_from_tei,
-    metadata::core_metadata_from_tei, publication::publication_context_from_tei,
+    authors::{ExtractedAffiliation, ExtractedAuthor, authors_from_tei},
+    content::document_content_from_tei,
+    metadata::{literature_title_from_tei, paper_metadata_from_tei},
+    publication::publication_details_from_tei,
 };
 
-impl From<&TeiDocument> for Paper {
-    fn from(document: &TeiDocument) -> Self {
-        paper_from_tei(document)
-    }
-}
-
-pub fn paper_from_tei(document: &TeiDocument) -> Paper {
+pub fn paper_from_tei(document: &TeiDocument, source: SourceHash) -> Paper {
     let source_bibl = source_bibl(document);
+    let publication = publication_details_from_tei(document, source_bibl);
+    let mut metadata = paper_metadata_from_tei(document);
+    metadata.journal.clone_from(&publication.journal);
+    metadata.volume.clone_from(&publication.volume);
+    metadata.issue.clone_from(&publication.issue);
+    metadata.pages.clone_from(&publication.pages);
+
+    let authors = authors_from_tei(document, source_bibl);
+    let title = literature_title_from_tei(document, source_bibl);
+    let content = document_content_from_tei(document);
+    let graph = paper_graph_from_parts(title, &publication, authors);
 
     Paper {
-        core: core_metadata_from_tei(document, source_bibl),
-        publication: publication_context_from_tei(document, source_bibl),
-        authors: authors_from_tei(document, source_bibl),
-        content: document_content_from_tei(document),
+        source,
+        graph,
+        metadata,
+        content,
         extraction_data: PdfExtractionData::default(),
     }
 }
@@ -33,4 +44,67 @@ fn source_bibl(document: &TeiDocument) -> Option<&BiblStruct> {
         .source_desc
         .bibliographic_structures
         .first()
+}
+
+fn paper_graph_from_parts(
+    title: Option<String>,
+    publication: &PublicationDetails,
+    extracted_authors: Vec<ExtractedAuthor>,
+) -> PaperGraph {
+    let literature = Literature::Scientific(ScientificLiterature {
+        core: LiteratureCore {
+            title,
+            publishing_date: publication.publishing_date.clone(),
+            issn: publication.identifiers.issn.clone(),
+            isbn: publication.identifiers.isbn.clone(),
+        },
+        doi: publication.identifiers.doi.clone(),
+    });
+
+    let publications = publication
+        .publisher
+        .as_deref()
+        .map(|publisher| Publication {
+            publisher: Institution {
+                name: Some(publisher.to_owned()),
+                kind: InstitutionKind::Institution,
+            },
+        })
+        .into_iter()
+        .collect();
+
+    let authorings = extracted_authors
+        .into_iter()
+        .map(authoring_from_extracted_author)
+        .collect();
+
+    PaperGraph {
+        literature,
+        authorings,
+        publications,
+    }
+}
+
+fn authoring_from_extracted_author(extracted: ExtractedAuthor) -> Authoring {
+    Authoring {
+        author: extracted.author,
+        affiliations: extracted
+            .affiliations
+            .into_iter()
+            .filter_map(affiliation_from_extracted_affiliation)
+            .collect(),
+    }
+}
+
+fn affiliation_from_extracted_affiliation(extracted: ExtractedAffiliation) -> Option<Affiliation> {
+    let institution_name = extracted.institution?;
+    let department_name = extracted.department.or(extracted.laboratory);
+
+    Some(Affiliation {
+        institution: Institution {
+            name: Some(institution_name),
+            kind: InstitutionKind::Institution,
+        },
+        department: department_name.map(|name| Department { name: Some(name) }),
+    })
 }

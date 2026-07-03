@@ -1,13 +1,23 @@
 pub mod author;
 pub mod content;
+pub mod graph;
+pub mod institution;
+pub mod literature;
 pub mod metadata;
 pub mod paper;
 pub mod pdf;
 pub mod publication;
+pub mod relation;
+pub mod source;
 
-pub use author::{Affiliation, Author};
+pub use author::Author;
 pub use content::{DocumentContent, Figure, Section, StructuredReference, Table};
-pub use metadata::CoreMetadata;
+pub use graph::PaperGraph;
+pub use institution::{Department, Institution, InstitutionKind};
+pub use literature::{Literature, LiteratureCore, ScientificLiterature};
+pub use metadata::PaperMetadata;
 pub use paper::Paper;
 pub use pdf::{BoundingBox, PdfExtractionData, PdfProperties};
-pub use publication::{PublicationContext, PublicationDate, PublicationIds};
+pub use publication::{PublicationDate, PublicationDetails, PublicationIds};
+pub use relation::{Affiliation, Authoring, Publication};
+pub use source::SourceHash;

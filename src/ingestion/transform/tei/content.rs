@@ -10,7 +10,7 @@ use crate::models::{
 };
 
 use super::{
-    authors::author_from_tei,
+    authors::reference_author_from_tei,
     publication::{
         first_title_text, journal_title, publication_date_from_tei_date, publication_ids_from_bibl,
     },
@@ -179,6 +179,19 @@ fn collect_references_from_list(list: &ListBibl, references: &mut Vec<Structured
 fn structured_reference_from_bibl(bibl: &BiblStruct, index: usize) -> StructuredReference {
     let analytic = bibl.analytic.as_ref();
     let monograph = bibl.monographs.first();
+    let title = analytic
+        .and_then(|analytic| first_title_text(&analytic.titles))
+        .or_else(|| monograph.and_then(|monograph| first_title_text(&monograph.titles)));
+    let year = monograph
+        .and_then(|monograph| monograph.imprint.as_ref())
+        .and_then(|imprint| {
+            imprint
+                .dates
+                .iter()
+                .find_map(publication_date_from_tei_date)
+        })
+        .map(|date| date.year);
+    let identifiers = publication_ids_from_bibl(bibl);
 
     StructuredReference {
         id: bibl
@@ -186,26 +199,28 @@ fn structured_reference_from_bibl(bibl: &BiblStruct, index: usize) -> Structured
             .xml_id
             .clone()
             .unwrap_or_else(|| format!("ref-{index}")),
-        title: analytic
-            .and_then(|analytic| first_title_text(&analytic.titles))
-            .or_else(|| monograph.and_then(|monograph| first_title_text(&monograph.titles))),
+        title,
         authors: analytic
-            .map(|analytic| analytic.authors.iter().map(author_from_tei).collect())
+            .map(|analytic| {
+                analytic
+                    .authors
+                    .iter()
+                    .map(reference_author_from_tei)
+                    .collect()
+            })
             .unwrap_or_else(|| {
                 monograph
-                    .map(|monograph| monograph.authors.iter().map(author_from_tei).collect())
+                    .map(|monograph| {
+                        monograph
+                            .authors
+                            .iter()
+                            .map(reference_author_from_tei)
+                            .collect()
+                    })
                     .unwrap_or_default()
             }),
         journal: monograph.and_then(journal_title),
-        year: monograph
-            .and_then(|monograph| monograph.imprint.as_ref())
-            .and_then(|imprint| {
-                imprint
-                    .dates
-                    .iter()
-                    .find_map(publication_date_from_tei_date)
-            })
-            .map(|date| date.year),
-        identifiers: publication_ids_from_bibl(bibl),
+        year,
+        identifiers,
     }
 }

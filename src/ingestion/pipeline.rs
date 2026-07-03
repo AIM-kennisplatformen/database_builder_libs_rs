@@ -13,7 +13,10 @@ use crate::{
         parse::tei::reader::parse_tei_xml_path,
         transform::tei::paper_from_tei,
     },
-    models::paths::{pdf::PdfPath, tei_xml::TeiXmlPath},
+    models::{
+        domain::SourceHash,
+        paths::{pdf::PdfPath, tei_xml::TeiXmlPath},
+    },
 };
 
 pub async fn run_with_reporter<F>(
@@ -37,8 +40,25 @@ where
         .with_context(|| format!("deriving output filenames from {}", pdf_path.display()))?;
     let tei_xml_path = TeiXmlPath::filename_from_stem(file_stem, &tei_xml_dir);
 
+    let pdf_bytes = match grobid
+        .read_pdf(&pdf_path)
+        .map_err(PipelineError::from)
+        .with_context(|| format!("reading PDF from {}", pdf_path.display()))
+    {
+        Ok(pdf_bytes) => {
+            report("Read PDF bytes");
+            pdf_bytes
+        }
+        Err(error) => {
+            report(&format!("Failed to read PDF: {error}"));
+            return Err(error);
+        }
+    };
+    let source = SourceHash::from_bytes(&pdf_bytes);
+    report("Calculated PDF source hash");
+
     let tei_xml = match grobid
-        .extract_pdf_to_tei_xml(&pdf_path)
+        .extract_pdf_bytes_to_tei_xml(&pdf_path, pdf_bytes)
         .await
         .map_err(PipelineError::from)
         .with_context(|| format!("extracting TEI XML from {}", pdf_path.display()))
@@ -72,7 +92,7 @@ where
         }
     };
 
-    let paper = paper_from_tei(&tei_document);
+    let paper = paper_from_tei(&tei_document, source);
     report("Transformed tei document to domain paper");
 
     let json_path = json_path_for_tei_xml(&tei_xml_path, json_dir);

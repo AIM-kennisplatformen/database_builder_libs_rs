@@ -20,17 +20,30 @@ impl GrobidSource {
         }
     }
 
+    pub fn read_pdf(&self, pdf_path: &PdfPath) -> Result<Vec<u8>, GrobidError> {
+        fs::read(pdf_path.as_path()).map_err(|source| GrobidError::ReadPdf {
+            path: (*pdf_path).clone(),
+            source,
+        })
+    }
+
     pub async fn extract_pdf_to_tei_xml(&self, pdf_path: &PdfPath) -> Result<String, GrobidError> {
+        let pdf_bytes = self.read_pdf(pdf_path)?;
+
+        self.extract_pdf_bytes_to_tei_xml(pdf_path, pdf_bytes).await
+    }
+
+    pub async fn extract_pdf_bytes_to_tei_xml(
+        &self,
+        pdf_path: &PdfPath,
+        pdf_bytes: Vec<u8>,
+    ) -> Result<String, GrobidError> {
         let file_name = pdf_path
             .as_path()
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| GrobidError::MissingFileName((*pdf_path).clone()))?;
 
-        let pdf_bytes = fs::read(pdf_path.as_path()).map_err(|source| GrobidError::ReadPdf {
-            path: (*pdf_path).clone(),
-            source,
-        })?;
         let pdf_part = multipart::Part::bytes(pdf_bytes)
             .file_name(file_name.to_owned())
             .mime_str("application/pdf")?;

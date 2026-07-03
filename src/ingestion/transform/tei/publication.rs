@@ -1,5 +1,5 @@
 use crate::models::{
-    domain::{PublicationContext, PublicationDate, PublicationIds},
+    domain::{PublicationDate, PublicationDetails, PublicationIds},
     tei::{
         bibliography::{BiblScope, BiblStruct, Date as TeiDate, Idno, Monogr, Title},
         document::TeiDocument,
@@ -8,12 +8,12 @@ use crate::models::{
 
 use super::text::normalized_opt;
 
-pub fn publication_context_from_tei(
+pub fn publication_details_from_tei(
     document: &TeiDocument,
     source_bibl: Option<&BiblStruct>,
-) -> PublicationContext {
+) -> PublicationDetails {
     let mut publication = source_bibl
-        .map(publication_context_from_bibl)
+        .map(publication_details_from_bibl)
         .unwrap_or_default();
 
     if publication.publisher.is_none() {
@@ -29,11 +29,11 @@ pub fn publication_context_from_tei(
     publication
 }
 
-fn publication_context_from_bibl(bibl: &BiblStruct) -> PublicationContext {
+fn publication_details_from_bibl(bibl: &BiblStruct) -> PublicationDetails {
     let monograph = bibl.monographs.first();
     let imprint = monograph.and_then(|monograph| monograph.imprint.as_ref());
 
-    PublicationContext {
+    PublicationDetails {
         identifiers: publication_ids_from_bibl(bibl),
         publisher: imprint.and_then(|imprint| {
             imprint
@@ -42,7 +42,7 @@ fn publication_context_from_bibl(bibl: &BiblStruct) -> PublicationContext {
                 .find_map(|publisher| normalized_opt(publisher.text.as_deref()))
         }),
         journal: monograph.and_then(journal_title),
-        date: imprint.and_then(|imprint| {
+        publishing_date: imprint.and_then(|imprint| {
             imprint
                 .dates
                 .iter()

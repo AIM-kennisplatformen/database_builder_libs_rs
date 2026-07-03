@@ -1,5 +1,5 @@
 use crate::models::{
-    domain::{Affiliation as DomainAffiliation, Author as DomainAuthor},
+    domain::Author as DomainAuthor,
     tei::{
         bibliography::{Affiliation as TeiAffiliation, Author as TeiAuthor, BiblStruct},
         document::TeiDocument,
@@ -11,14 +11,17 @@ use super::text::normalized_opt;
 pub fn authors_from_tei(
     document: &TeiDocument,
     source_bibl: Option<&BiblStruct>,
-) -> Vec<DomainAuthor> {
+) -> Vec<ExtractedAuthor> {
     let source_authors = source_bibl
         .and_then(|bibl| bibl.analytic.as_ref())
         .map(|analytic| analytic.authors.as_slice())
         .unwrap_or_default();
 
     if !source_authors.is_empty() {
-        return source_authors.iter().map(author_from_tei).collect();
+        return source_authors
+            .iter()
+            .map(extracted_author_from_tei)
+            .collect();
     }
 
     document
@@ -27,36 +30,57 @@ pub fn authors_from_tei(
         .title_stmt
         .authors
         .iter()
-        .map(author_from_tei)
+        .map(extracted_author_from_tei)
         .collect()
 }
 
-pub fn author_from_tei(author: &TeiAuthor) -> DomainAuthor {
-    let person_name = author.person_names.first();
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtractedAuthor {
+    pub author: DomainAuthor,
+    pub affiliations: Vec<ExtractedAffiliation>,
+}
 
-    DomainAuthor {
-        first_name: person_name.and_then(|name| {
-            name.forenames
-                .iter()
-                .find(|part| part.typed.kind.as_deref() == Some("first"))
-                .or_else(|| name.forenames.first())
-                .and_then(|part| normalized_opt(part.text.as_deref()))
-        }),
-        middle_name: person_name.and_then(|name| {
-            let middle = name
-                .forenames
-                .iter()
-                .filter(|part| part.typed.kind.as_deref() == Some("middle"))
-                .filter_map(|part| normalized_opt(part.text.as_deref()))
-                .collect::<Vec<_>>()
-                .join(" ");
-            normalized_opt(Some(&middle))
-        }),
-        last_name: person_name.and_then(|name| {
-            name.surnames
-                .first()
-                .and_then(|surname| normalized_opt(surname.text.as_deref()))
-        }),
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ExtractedAffiliation {
+    pub laboratory: Option<String>,
+    pub department: Option<String>,
+    pub institution: Option<String>,
+    pub settlement: Option<String>,
+    pub country: Option<String>,
+}
+
+pub fn reference_author_from_tei(author: &TeiAuthor) -> DomainAuthor {
+    extracted_author_from_tei(author).author
+}
+
+fn extracted_author_from_tei(author: &TeiAuthor) -> ExtractedAuthor {
+    let person_name = author.person_names.first();
+    let first_name = person_name.and_then(|name| {
+        name.forenames
+            .iter()
+            .find(|part| part.typed.kind.as_deref() == Some("first"))
+            .or_else(|| name.forenames.first())
+            .and_then(|part| normalized_opt(part.text.as_deref()))
+    });
+    let middle_name = person_name.and_then(|name| {
+        let middle = name
+            .forenames
+            .iter()
+            .filter(|part| part.typed.kind.as_deref() == Some("middle"))
+            .filter_map(|part| normalized_opt(part.text.as_deref()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        normalized_opt(Some(&middle))
+    });
+    let surname = person_name.and_then(|name| {
+        name.surnames
+            .first()
+            .and_then(|surname| normalized_opt(surname.text.as_deref()))
+    });
+    let forename = join_name_parts([first_name, middle_name]);
+
+    ExtractedAuthor {
+        author: DomainAuthor { forename, surname },
         affiliations: author
             .affiliations
             .iter()
@@ -65,8 +89,8 @@ pub fn author_from_tei(author: &TeiAuthor) -> DomainAuthor {
     }
 }
 
-fn affiliation_from_tei(affiliation: &TeiAffiliation) -> DomainAffiliation {
-    let mut domain = DomainAffiliation::default();
+fn affiliation_from_tei(affiliation: &TeiAffiliation) -> ExtractedAffiliation {
+    let mut domain = ExtractedAffiliation::default();
 
     for org in &affiliation.organization_names {
         let Some(text) = normalized_opt(org.text.as_deref()) else {
@@ -94,4 +118,9 @@ fn affiliation_from_tei(affiliation: &TeiAffiliation) -> DomainAffiliation {
     }
 
     domain
+}
+
+fn join_name_parts(parts: [Option<String>; 2]) -> Option<String> {
+    let joined = parts.into_iter().flatten().collect::<Vec<_>>().join(" ");
+    normalized_opt(Some(&joined))
 }

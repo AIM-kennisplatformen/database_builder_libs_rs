@@ -33,7 +33,7 @@ pub struct Table {
     pub bounding_boxes: Vec<BoundingBox>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct StructuredReference {
     pub id: String,
     pub title: Option<String>,
