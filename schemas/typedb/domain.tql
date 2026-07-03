@@ -17,14 +17,15 @@ attribute project-number, value integer;
 # LITERATURE
 entity literature @abstract,
   owns source @card(1..),
-  owns title @card(1),
+  owns title @card(0..1),
   owns publishing-date @card(0..1),
   owns issn @card(0..1),
   owns isbn @card(0..1),
-  plays authoring:literature @card(1..),
+  plays authoring:literature @card(0..),
   plays project-literature:literature @card(0..),
-  plays reference:literature,
-  plays publication:literature;
+  plays citation:citing @card(0..),
+  plays citation:cited @card(0..),
+  plays publication:literature @card(0..);
 
 entity scientific-literature sub literature,
   owns doi @card(0..1);
@@ -43,9 +44,9 @@ entity book-chapter sub literature;
 entity institution,
   owns source @card(1..),
   plays institutional-structure:institution @card(0..),
-  plays affiliation:institution,
+  plays affiliation:institution @card(0..),
   plays publication:publisher @card(0..),
-  plays research-activity:institution;
+  plays research-activity:institution @card(0..);
 
 entity government-institution sub institution;
 
@@ -59,7 +60,7 @@ entity university-of-applied-sciences sub knowledge-institution;
 
 entity department,
   owns source @card(1..),
-  owns name @card(1..);
+  owns name @card(0..);
 
 # PERSON
 entity person,
@@ -69,8 +70,7 @@ entity person,
   plays affiliation:author @card(0..);
 
 entity author sub person,
-  plays authoring:author,
-  plays reference:author;
+  plays authoring:author @card(0..);
 
 # PROJECT
 entity project,
@@ -98,9 +98,9 @@ relation project-literature,
   relates project,
   relates literature;
 
-relation reference,
-  relates literature,
-  relates author;
+relation citation,
+  relates citing,
+  relates cited;
 
 relation publication,
   relates literature,
