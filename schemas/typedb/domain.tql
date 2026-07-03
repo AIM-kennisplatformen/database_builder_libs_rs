@@ -9,6 +9,7 @@ attribute isbn, value string;
 attribute doi, value string;
 attribute forename, value string;
 attribute surname, value string;
+attribute name, value string;
 attribute project-name, value string;
 attribute project-number, value integer;
 
@@ -43,6 +44,7 @@ entity book-chapter sub literature;
 # INSTITUTION
 entity institution,
   owns source @card(1..),
+  owns name @card(0..1),
   plays institutional-structure:institution @card(0..),
   plays affiliation:institution @card(0..),
   plays publication:publisher @card(0..),
@@ -60,7 +62,8 @@ entity university-of-applied-sciences sub knowledge-institution;
 
 entity department,
   owns source @card(1..),
-  owns name @card(0..);
+  owns name @card(0..1),
+  plays institutional-structure:department @card(0..);
 
 # PERSON
 entity person,
