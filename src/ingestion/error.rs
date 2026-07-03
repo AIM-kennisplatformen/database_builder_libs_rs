@@ -1,7 +1,8 @@
 use thiserror::Error;
 
 use crate::ingestion::{
-    export::json::JsonExportError, extract::grobid::error::GrobidError,
+    export::{json::JsonExportError, tei_xml::TeiXmlExportError},
+    extract::grobid::error::GrobidError,
     parse::tei::error::ParseError as TeiParseError,
 };
 
@@ -10,25 +11,25 @@ pub enum PipelineError {
     #[error("PDF path has no file stem: {path}")]
     MissingPdfFileStem { path: std::path::PathBuf },
 
-    #[error("failed to extract TEI XML with GROBID: {source}")]
+    #[error("failed to extract TEI XML with GROBID")]
     ExtractError {
         #[from]
         source: GrobidError,
     },
 
-    #[error("failed to write TEI XML: {source}")]
+    #[error("failed to write TEI XML")]
     TeiXmlExportError {
-        #[source]
-        source: std::io::Error,
+        #[from]
+        source: TeiXmlExportError,
     },
 
-    #[error("failed to parse TEI XML: {source}")]
+    #[error("failed to parse TEI XML")]
     ParseError {
         #[from]
         source: TeiParseError,
     },
 
-    #[error("failed to export domain paper as JSON: {source}")]
+    #[error("failed to export domain paper as JSON")]
     JsonExportError {
         #[from]
         source: JsonExportError,

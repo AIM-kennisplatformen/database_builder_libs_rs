@@ -1,6 +1,7 @@
 use core::future::Future;
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use typedb_driver::{Database, Transaction, TransactionType, TypeDBDriver};
 
 use crate::stores::{
@@ -28,43 +29,35 @@ impl TypedbStore<TypedbDisconnected> {
         }
     }
 
-    pub async fn connect(
-        self,
-        config: &TypedbConfig,
-    ) -> Result<TypedbStore<TypedbConnected>, TypedbStoreError> {
+    pub async fn connect(self, config: &TypedbConfig) -> Result<TypedbStore<TypedbConnected>> {
         self.connect_inner(config).await
     }
 
-    async fn connect_inner(
-        self,
-        config: &TypedbConfig,
-    ) -> Result<TypedbStore<TypedbConnected>, TypedbStoreError> {
-        let addresses = match config.addresses() {
-            Ok(addresses) => addresses,
-            Err(error) => return Err(error),
-        };
+    async fn connect_inner(self, config: &TypedbConfig) -> Result<TypedbStore<TypedbConnected>> {
+        let addresses = config
+            .addresses()
+            .with_context(|| format!("parsing TypeDB address `{}`", config.address))?;
 
-        let driver =
-            match TypeDBDriver::new(addresses, config.credentials(), config.driver_options()).await
-            {
-                Ok(driver) => driver,
-                Err(source) => {
-                    return Err(TypedbStoreError::Connect {
-                        address: config.address.clone(),
-                        source: Box::new(source),
-                    });
-                }
-            };
+        let driver = TypeDBDriver::new(addresses, config.credentials(), config.driver_options())
+            .await
+            .map_err(|source| TypedbStoreError::Connect {
+                address: config.address.clone(),
+                source: Box::new(source),
+            })
+            .with_context(|| format!("connecting to TypeDB at `{}`", config.address))?;
 
-        let database = match Self::get_or_create_database(&driver, &config.database).await {
-            Ok(database) => database,
-            Err(error) => return Err(error),
-        };
+        let database = Self::get_or_create_database(&driver, &config.database)
+            .await
+            .with_context(|| format!("preparing TypeDB database `{}`", config.database))?;
 
-        match Self::ensure_schema(&driver, database.name(), &config.schema).await {
-            Ok(()) => {}
-            Err(error) => return Err(error),
-        }
+        Self::ensure_schema(&driver, database.name(), &config.schema)
+            .await
+            .with_context(|| {
+                format!(
+                    "ensuring TypeDB schema is applied to database `{}`",
+                    database.name()
+                )
+            })?;
 
         Ok(TypedbStore {
             state: TypedbConnected { driver, database },
@@ -74,76 +67,79 @@ impl TypedbStore<TypedbDisconnected> {
     async fn get_or_create_database(
         driver: &TypeDBDriver,
         database: &str,
-    ) -> Result<Arc<Database>, TypedbStoreError> {
+    ) -> Result<Arc<Database>> {
         let databases = driver.databases();
 
-        match databases.contains(database).await {
-            Ok(true) => {}
-            Ok(false) => match databases.create(database).await {
-                Ok(()) => {}
-                Err(source) => {
-                    return Err(TypedbStoreError::CreateDatabase {
-                        database: database.to_owned(),
-                        source: Box::new(source),
-                    });
-                }
-            },
-            Err(source) => {
-                return Err(TypedbStoreError::CheckDatabase {
-                    database: database.to_owned(),
-                    source: Box::new(source),
-                });
-            }
-        }
-
-        match databases.get(database).await {
-            Ok(database) => Ok(database),
-            Err(source) => Err(TypedbStoreError::OpenDatabase {
+        let exists = databases
+            .contains(database)
+            .await
+            .map_err(|source| TypedbStoreError::CheckDatabase {
                 database: database.to_owned(),
                 source: Box::new(source),
-            }),
+            })
+            .with_context(|| format!("checking whether TypeDB database `{database}` exists"))?;
+
+        if !exists {
+            databases
+                .create(database)
+                .await
+                .map_err(|source| TypedbStoreError::CreateDatabase {
+                    database: database.to_owned(),
+                    source: Box::new(source),
+                })
+                .with_context(|| format!("creating TypeDB database `{database}`"))?;
         }
+
+        databases
+            .get(database)
+            .await
+            .map_err(|source| TypedbStoreError::OpenDatabase {
+                database: database.to_owned(),
+                source: Box::new(source),
+            })
+            .with_context(|| format!("opening TypeDB database `{database}`"))
     }
 
-    async fn ensure_schema(
-        driver: &TypeDBDriver,
-        database: &str,
-        schema: &str,
-    ) -> Result<(), TypedbStoreError> {
-        let transaction = match driver.transaction(database, TransactionType::Schema).await {
-            Ok(transaction) => transaction,
-            Err(source) => {
-                return Err(TypedbStoreError::OpenSchemaTransaction {
-                    database: database.to_owned(),
-                    source: Box::new(source),
-                });
-            }
-        };
-
-        match transaction.query(schema).await {
-            Ok(_) => {}
-            Err(source) => {
-                return Err(TypedbStoreError::ApplySchema {
-                    database: database.to_owned(),
-                    source: Box::new(source),
-                });
-            }
-        }
-
-        match transaction.commit().await {
-            Ok(()) => Ok(()),
-            Err(source) => Err(TypedbStoreError::CommitSchema {
+    async fn ensure_schema(driver: &TypeDBDriver, database: &str, schema: &str) -> Result<()> {
+        let transaction = driver
+            .transaction(database, TransactionType::Schema)
+            .await
+            .map_err(|source| TypedbStoreError::OpenSchemaTransaction {
                 database: database.to_owned(),
                 source: Box::new(source),
-            }),
-        }
+            })
+            .with_context(|| {
+                format!("opening TypeDB schema transaction for database `{database}`")
+            })?;
+
+        transaction
+            .query(schema)
+            .await
+            .map_err(|source| TypedbStoreError::ApplySchema {
+                database: database.to_owned(),
+                source: Box::new(source),
+            })
+            .with_context(|| format!("applying TypeDB schema to database `{database}`"))?;
+
+        transaction
+            .commit()
+            .await
+            .map_err(|source| TypedbStoreError::CommitSchema {
+                database: database.to_owned(),
+                source: Box::new(source),
+            })
+            .with_context(|| {
+                format!("committing TypeDB schema transaction for database `{database}`")
+            })?;
+
+        Ok(())
     }
 }
 
 impl Connect for TypedbStore<TypedbDisconnected> {
     type Config = TypedbConfig;
     type Connected = TypedbStore<TypedbConnected>;
-    type Error = TypedbStoreError;
+    type Error = anyhow::Error;
 
     fn connect(
         self,
@@ -154,34 +150,36 @@ impl Connect for TypedbStore<TypedbDisconnected> {
 }
 
 impl TypedbStore<TypedbConnected> {
-    pub async fn transaction(
-        &self,
-        transaction_type: TransactionType,
-    ) -> Result<Transaction, TypedbStoreError> {
+    pub async fn transaction(&self, transaction_type: TransactionType) -> Result<Transaction> {
         let database = self.state.database.name();
         let transaction_type_name = Self::transaction_type_name(transaction_type);
 
-        match self
-            .state
+        self.state
             .driver
             .transaction(database, transaction_type)
             .await
-        {
-            Ok(transaction) => Ok(transaction),
-            Err(source) => Err(TypedbStoreError::OpenTransaction {
+            .map_err(|source| TypedbStoreError::OpenTransaction {
                 database: database.to_owned(),
                 transaction_type: transaction_type_name,
                 source: Box::new(source),
-            }),
-        }
+            })
+            .with_context(|| {
+                format!(
+                    "opening {transaction_type_name} TypeDB transaction for database `{database}`"
+                )
+            })
     }
 
-    pub async fn read_transaction(&self) -> Result<Transaction, TypedbStoreError> {
-        self.transaction(TransactionType::Read).await
+    pub async fn read_transaction(&self) -> Result<Transaction> {
+        self.transaction(TransactionType::Read)
+            .await
+            .context("opening read TypeDB transaction")
     }
 
-    pub async fn write_transaction(&self) -> Result<Transaction, TypedbStoreError> {
-        self.transaction(TransactionType::Write).await
+    pub async fn write_transaction(&self) -> Result<Transaction> {
+        self.transaction(TransactionType::Write)
+            .await
+            .context("opening write TypeDB transaction")
     }
 
     fn transaction_type_name(transaction_type: TransactionType) -> &'static str {
@@ -194,17 +192,16 @@ impl TypedbStore<TypedbConnected> {
 }
 
 impl Disconnect for TypedbStore<TypedbConnected> {
-    type Output = Result<TypedbStore<TypedbDisconnected>, TypedbStoreError>;
+    type Output = Result<TypedbStore<TypedbDisconnected>>;
 
     fn disconnect(self) -> Self::Output {
-        match self.state.driver.force_close() {
-            Ok(()) => {}
-            Err(source) => {
-                return Err(TypedbStoreError::CloseDriver {
-                    source: Box::new(source),
-                });
-            }
-        }
+        self.state
+            .driver
+            .force_close()
+            .map_err(|source| TypedbStoreError::CloseDriver {
+                source: Box::new(source),
+            })
+            .context("closing TypeDB driver")?;
 
         Ok(TypedbStore::new())
     }

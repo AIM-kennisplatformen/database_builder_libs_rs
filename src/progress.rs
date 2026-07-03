@@ -29,7 +29,7 @@ impl ProgressBar {
 
     pub fn error(&mut self, message: &str) {
         clear_progress_line();
-        eprintln!("{message}");
+        eprintln!("{message}\n");
         self.render();
     }
 

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use anyhow::{Context, Result};
+
 use crate::{
     ingestion::{
         error::PipelineError,
@@ -19,7 +21,7 @@ pub async fn run_with_reporter<F>(
     tei_xml_dir: PathBuf,
     json_dir: PathBuf,
     mut report: F,
-) -> Result<(), PipelineError>
+) -> Result<()>
 where
     F: FnMut(&str),
 {
@@ -31,32 +33,42 @@ where
         .file_stem()
         .ok_or_else(|| PipelineError::MissingPdfFileStem {
             path: pdf_path.as_path().to_path_buf(),
-        })?;
+        })
+        .with_context(|| format!("deriving output filenames from {}", pdf_path.display()))?;
     let tei_xml_path = TeiXmlPath::filename_from_stem(file_stem, &tei_xml_dir);
 
-    let tei_xml = match grobid.extract_pdf_to_tei_xml(&pdf_path).await {
+    let tei_xml = match grobid
+        .extract_pdf_to_tei_xml(&pdf_path)
+        .await
+        .map_err(PipelineError::from)
+        .with_context(|| format!("extracting TEI XML from {}", pdf_path.display()))
+    {
         Ok(tei_xml) => {
             report("Extracted TEI XML with GROBID");
             tei_xml
         }
         Err(error) => {
             report(&format!("Failed to parse PDF with GROBID: {error}"));
-            return Err(error.into());
+            return Err(error);
         }
     };
 
     write_tei_xml(&tei_xml_path, &tei_xml)
-        .map_err(|source| PipelineError::TeiXmlExportError { source })?;
+        .map_err(PipelineError::from)
+        .with_context(|| format!("writing TEI XML to {}", tei_xml_path.display()))?;
     report(&format!("Saved TEI XML to {}", tei_xml_path.display()));
 
-    let tei_document = match parse_tei_xml_path(&tei_xml_path) {
+    let tei_document = match parse_tei_xml_path(&tei_xml_path)
+        .map_err(PipelineError::from)
+        .with_context(|| format!("parsing TEI XML from {}", tei_xml_path.display()))
+    {
         Ok(document) => {
             report("Transformed TEI XML into tei document");
             document
         }
         Err(error) => {
             report(&format!("Failed to parse TEI XML: {error}"));
-            return Err(error.into());
+            return Err(error);
         }
     };
 
@@ -64,10 +76,14 @@ where
     report("Transformed tei document to domain paper");
 
     let json_path = json_path_for_tei_xml(&tei_xml_path, json_dir);
-    write_paper_json(&paper, &json_path).map_err(|error| {
+    if let Err(error) = write_paper_json(&paper, &json_path)
+        .map_err(PipelineError::from)
+        .with_context(|| format!("writing domain JSON to {}", json_path.display()))
+    {
         report(&format!("Failed to export domain paper as JSON: {error}"));
-        PipelineError::from(error)
-    })?;
+        return Err(error);
+    }
+
     report(&format!("Saved domain JSON to {}", json_path.display()));
 
     Ok(())

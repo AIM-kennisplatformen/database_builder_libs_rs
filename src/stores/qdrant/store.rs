@@ -1,5 +1,6 @@
 use core::future::Future;
 
+use anyhow::{Context, Result};
 use qdrant_client::{
     Payload, Qdrant,
     qdrant::{
@@ -34,33 +35,22 @@ impl QdrantStore<QdrantDisconnected> {
         }
     }
 
-    pub async fn connect(
-        self,
-        config: &QdrantConfig,
-    ) -> Result<QdrantStore<QdrantConnected>, QdrantStoreError> {
+    pub async fn connect(self, config: &QdrantConfig) -> Result<QdrantStore<QdrantConnected>> {
         self.connect_inner(config).await
     }
 
-    async fn connect_inner(
-        self,
-        config: &QdrantConfig,
-    ) -> Result<QdrantStore<QdrantConnected>, QdrantStoreError> {
-        let client = match Qdrant::from_url(&config.url)
+    async fn connect_inner(self, config: &QdrantConfig) -> Result<QdrantStore<QdrantConnected>> {
+        let client = Qdrant::from_url(&config.url)
             .api_key(config.api_key.as_str())
             .build()
-        {
-            Ok(client) => client,
-            Err(source) => {
-                return Err(QdrantStoreError::BuildClient {
-                    source: Box::new(source),
-                });
-            }
-        };
+            .map_err(|source| QdrantStoreError::BuildClient {
+                source: Box::new(source),
+            })
+            .with_context(|| format!("building Qdrant client for `{}`", config.url))?;
 
-        match Self::ensure_collection(&client, config).await {
-            Ok(()) => {}
-            Err(error) => return Err(error),
-        }
+        Self::ensure_collection(&client, config)
+            .await
+            .with_context(|| format!("preparing Qdrant collection `{}`", config.collection))?;
 
         Ok(QdrantStore {
             state: QdrantConnected {
@@ -71,42 +61,46 @@ impl QdrantStore<QdrantDisconnected> {
         })
     }
 
-    async fn ensure_collection(
-        client: &Qdrant,
-        config: &QdrantConfig,
-    ) -> Result<(), QdrantStoreError> {
-        match client.collection_exists(&config.collection).await {
-            Ok(true) => return Ok(()),
-            Ok(false) => {}
-            Err(source) => {
-                return Err(QdrantStoreError::CheckCollection {
-                    collection: config.collection.clone(),
-                    source: Box::new(source),
-                });
-            }
-        };
+    async fn ensure_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
+        let exists = client
+            .collection_exists(&config.collection)
+            .await
+            .map_err(|source| QdrantStoreError::CheckCollection {
+                collection: config.collection.clone(),
+                source: Box::new(source),
+            })
+            .with_context(|| {
+                format!(
+                    "checking whether Qdrant collection `{}` exists",
+                    config.collection
+                )
+            })?;
 
-        match client
+        if exists {
+            return Ok(());
+        }
+
+        client
             .create_collection(
                 CreateCollectionBuilder::new(&config.collection).vectors_config(
                     VectorParamsBuilder::new(config.vector_dimension, config.distance),
                 ),
             )
             .await
-        {
-            Ok(_) => Ok(()),
-            Err(source) => Err(QdrantStoreError::CreateCollection {
+            .map_err(|source| QdrantStoreError::CreateCollection {
                 collection: config.collection.clone(),
                 source: Box::new(source),
-            }),
-        }
+            })
+            .with_context(|| format!("creating Qdrant collection `{}`", config.collection))?;
+
+        Ok(())
     }
 }
 
 impl Connect for QdrantStore<QdrantDisconnected> {
     type Config = QdrantConfig;
     type Connected = QdrantStore<QdrantConnected>;
-    type Error = QdrantStoreError;
+    type Error = anyhow::Error;
 
     fn connect(
         self,
@@ -122,51 +116,53 @@ impl QdrantStore<QdrantConnected> {
         id: impl Into<PointId>,
         vector: Vec<f32>,
         payload: impl Into<Payload>,
-    ) -> Result<PointsOperationResponse, QdrantStoreError> {
-        match self.validate_vector(&vector) {
-            Ok(()) => {}
-            Err(error) => return Err(error),
-        }
+    ) -> Result<PointsOperationResponse> {
+        self.validate_vector(&vector).with_context(|| {
+            format!(
+                "validating point vector for Qdrant collection `{}`",
+                self.state.collection
+            )
+        })?;
 
-        match self
-            .upsert_points(vec![PointStruct::new(id, vector, payload)])
+        self.upsert_points(vec![PointStruct::new(id, vector, payload)])
             .await
-        {
-            Ok(response) => Ok(response),
-            Err(error) => Err(error),
-        }
+            .with_context(|| {
+                format!(
+                    "upserting point into Qdrant collection `{}`",
+                    self.state.collection
+                )
+            })
     }
 
     pub async fn upsert_points(
         &self,
         points: impl Into<Vec<PointStruct>>,
-    ) -> Result<PointsOperationResponse, QdrantStoreError> {
-        match self
-            .state
+    ) -> Result<PointsOperationResponse> {
+        self.state
             .client
             .upsert_points(UpsertPointsBuilder::new(&self.state.collection, points).wait(true))
             .await
-        {
-            Ok(response) => Ok(response),
-            Err(source) => Err(QdrantStoreError::UpsertPoints {
+            .map_err(|source| QdrantStoreError::UpsertPoints {
                 collection: self.state.collection.clone(),
                 source: Box::new(source),
-            }),
-        }
+            })
+            .with_context(|| {
+                format!(
+                    "upserting points into Qdrant collection `{}`",
+                    self.state.collection
+                )
+            })
     }
 
-    pub async fn query(
-        &self,
-        vector: Vec<f32>,
-        limit: u64,
-    ) -> Result<QueryResponse, QdrantStoreError> {
-        match self.validate_vector(&vector) {
-            Ok(()) => {}
-            Err(error) => return Err(error),
-        }
+    pub async fn query(&self, vector: Vec<f32>, limit: u64) -> Result<QueryResponse> {
+        self.validate_vector(&vector).with_context(|| {
+            format!(
+                "validating query vector for Qdrant collection `{}`",
+                self.state.collection
+            )
+        })?;
 
-        match self
-            .state
+        self.state
             .client
             .query(
                 QueryPointsBuilder::new(&self.state.collection)
@@ -175,21 +171,20 @@ impl QdrantStore<QdrantConnected> {
                     .with_payload(true),
             )
             .await
-        {
-            Ok(response) => Ok(response),
-            Err(source) => Err(QdrantStoreError::Query {
+            .map_err(|source| QdrantStoreError::Query {
                 collection: self.state.collection.clone(),
                 source: Box::new(source),
-            }),
-        }
+            })
+            .with_context(|| format!("querying Qdrant collection `{}`", self.state.collection))
     }
 
-    fn validate_vector(&self, vector: &[f32]) -> Result<(), QdrantStoreError> {
+    fn validate_vector(&self, vector: &[f32]) -> Result<()> {
         if vector.len() as u64 != self.state.vector_dimension {
             return Err(QdrantStoreError::VectorDimensionMismatch {
                 expected: self.state.vector_dimension,
                 actual: vector.len(),
-            });
+            }
+            .into());
         }
 
         Ok(())

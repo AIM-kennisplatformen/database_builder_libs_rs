@@ -2,12 +2,12 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("Failed to read TEI XML file: {0}")]
+    #[error("failed to read TEI XML file")]
     Io(#[from] std::io::Error),
 
-    #[error("Failed to deserialize TEI XML: {0}")]
+    #[error("failed to deserialize TEI XML")]
     Deserialization(#[from] quick_xml::DeError),
 
-    #[error("File is empty or missing root tag")]
+    #[error("file is empty or missing root tag")]
     EmptyDocument,
 }

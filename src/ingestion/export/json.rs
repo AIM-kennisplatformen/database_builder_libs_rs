@@ -9,21 +9,21 @@ use crate::models::{domain::Paper, paths::tei_xml::TeiXmlPath};
 
 #[derive(Debug, Error)]
 pub enum JsonExportError {
-    #[error("failed to create JSON output directory at {path}: {source}")]
+    #[error("failed to create JSON output directory at {path}")]
     CreateOutputDir {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("failed to create JSON output file at {path}: {source}")]
+    #[error("failed to create JSON output file at {path}")]
     CreateFile {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("failed to serialize domain model as JSON: {0}")]
+    #[error("failed to serialize domain model as JSON")]
     Serialize(#[from] serde_json::Error),
 }
 
