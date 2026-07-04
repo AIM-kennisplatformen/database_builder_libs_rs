@@ -9,6 +9,7 @@ pub struct TypedbConfig {
     pub username: String,
     pub password: String,
     pub tls: bool,
+    pub wipe_database: bool,
     pub schema: String,
 }
 
@@ -19,6 +20,7 @@ impl TypedbConfig {
         username: impl Into<String>,
         password: impl Into<String>,
         tls: bool,
+        wipe_database: bool,
         schema: impl Into<String>,
     ) -> Self {
         Self {
@@ -27,6 +29,7 @@ impl TypedbConfig {
             username: username.into(),
             password: password.into(),
             tls,
+            wipe_database,
             schema: schema.into(),
         }
     }

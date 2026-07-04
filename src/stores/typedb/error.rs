@@ -27,6 +27,12 @@ pub enum TypedbStoreError {
         #[source]
         source: Box<TypedbDriverError>,
     },
+    #[error("failed to delete TypeDB database `{database}`")]
+    DeleteDatabase {
+        database: String,
+        #[source]
+        source: Box<TypedbDriverError>,
+    },
     #[error("failed to open TypeDB database `{database}`")]
     OpenDatabase {
         database: String,
