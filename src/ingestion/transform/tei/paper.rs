@@ -1,6 +1,6 @@
 use crate::models::{
     domain::{
-        Affiliation, Authoring, Department, Institution, InstitutionKind, Literature,
+        Affiliation, Authoring, Citation, Department, Institution, InstitutionKind, Literature,
         LiteratureCore, Paper, PaperGraph, PdfExtractionData, Publication, PublicationDetails,
         ScientificLiterature, SourceHash,
     },
@@ -9,7 +9,7 @@ use crate::models::{
 
 use super::{
     authors::{ExtractedAffiliation, ExtractedAuthor, authors_from_tei},
-    content::document_content_from_tei,
+    content::{citations_from_tei, document_content_from_tei},
     metadata::{literature_title_from_tei, paper_metadata_from_tei},
     publication::publication_details_from_tei,
 };
@@ -25,8 +25,9 @@ pub fn paper_from_tei(document: &TeiDocument, source: SourceHash) -> Paper {
 
     let authors = authors_from_tei(document, source_bibl);
     let title = literature_title_from_tei(document, source_bibl);
+    let citations = citations_from_tei(document);
     let content = document_content_from_tei(document);
-    let graph = paper_graph_from_parts(title, &publication, authors);
+    let graph = paper_graph_from_parts(title, &publication, authors, citations);
 
     Paper {
         source,
@@ -50,6 +51,7 @@ fn paper_graph_from_parts(
     title: Option<String>,
     publication: &PublicationDetails,
     extracted_authors: Vec<ExtractedAuthor>,
+    citations: Vec<Citation>,
 ) -> PaperGraph {
     let literature = Literature::Scientific(ScientificLiterature {
         core: LiteratureCore {
@@ -82,6 +84,7 @@ fn paper_graph_from_parts(
         literature,
         authorings,
         publications,
+        citations,
     }
 }
 

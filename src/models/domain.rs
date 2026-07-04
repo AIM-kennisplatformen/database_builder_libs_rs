@@ -11,7 +11,7 @@ pub mod relation;
 pub mod source;
 
 pub use author::Author;
-pub use content::{DocumentContent, Figure, Section, StructuredReference, Table};
+pub use content::{DocumentContent, Figure, Section, Table};
 pub use graph::PaperGraph;
 pub use institution::{Department, Institution, InstitutionKind};
 pub use literature::{Literature, LiteratureCore, ScientificLiterature};
@@ -19,5 +19,5 @@ pub use metadata::PaperMetadata;
 pub use paper::Paper;
 pub use pdf::{BoundingBox, PdfExtractionData, PdfProperties};
 pub use publication::{PublicationDate, PublicationDetails, PublicationIds};
-pub use relation::{Affiliation, Authoring, Publication};
+pub use relation::{Affiliation, Authoring, Citation, Publication};
 pub use source::SourceHash;

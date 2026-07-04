@@ -1,6 +1,7 @@
 use crate::models::{
     domain::{
-        DocumentContent, Figure as DomainFigure, Section, StructuredReference, Table as DomainTable,
+        Authoring, Citation, DocumentContent, Figure as DomainFigure, Literature, LiteratureCore,
+        ScientificLiterature, Section, Table as DomainTable,
     },
     tei::{
         bibliography::BiblStruct,
@@ -35,7 +36,6 @@ pub fn document_content_from_tei(document: &TeiDocument) -> DocumentContent {
         }
 
         if let Some(back) = text.back.as_ref() {
-            collect_references_from_blocks(&back.content, &mut content.references);
             collect_figures_and_tables(
                 &back.content,
                 &mut content.figures,
@@ -47,6 +47,18 @@ pub fn document_content_from_tei(document: &TeiDocument) -> DocumentContent {
     }
 
     content
+}
+
+pub fn citations_from_tei(document: &TeiDocument) -> Vec<Citation> {
+    let mut citations = Vec::new();
+
+    if let Some(text) = document.text.as_ref()
+        && let Some(back) = text.back.as_ref()
+    {
+        collect_citations_from_blocks(&back.content, &mut citations);
+    }
+
+    citations
 }
 
 fn collect_sections_from_blocks(blocks: &[Block], sections: &mut Vec<Section>) {
@@ -156,71 +168,83 @@ fn table_from_tei(table: &TeiTable, index: usize) -> DomainTable {
     }
 }
 
-fn collect_references_from_blocks(blocks: &[Block], references: &mut Vec<StructuredReference>) {
+fn collect_citations_from_blocks(blocks: &[Block], citations: &mut Vec<Citation>) {
     for block in blocks {
         match block {
             Block::Division(division) => {
-                collect_references_from_blocks(&division.content, references);
+                collect_citations_from_blocks(&division.content, citations);
             }
             Block::ListBibl(list) => {
-                collect_references_from_list(list, references);
+                collect_citations_from_list(list, citations);
             }
             _ => {}
         }
     }
 }
 
-fn collect_references_from_list(list: &ListBibl, references: &mut Vec<StructuredReference>) {
+fn collect_citations_from_list(list: &ListBibl, citations: &mut Vec<Citation>) {
     for bibl in &list.bibliographic_structures {
-        references.push(structured_reference_from_bibl(bibl, references.len() + 1));
+        citations.push(citation_from_bibl(bibl, citations.len() + 1));
     }
 }
 
-fn structured_reference_from_bibl(bibl: &BiblStruct, index: usize) -> StructuredReference {
+fn citation_from_bibl(bibl: &BiblStruct, index: usize) -> Citation {
     let analytic = bibl.analytic.as_ref();
     let monograph = bibl.monographs.first();
     let title = analytic
         .and_then(|analytic| first_title_text(&analytic.titles))
         .or_else(|| monograph.and_then(|monograph| first_title_text(&monograph.titles)));
-    let year = monograph
+    let publishing_date = monograph
         .and_then(|monograph| monograph.imprint.as_ref())
         .and_then(|imprint| {
             imprint
                 .dates
                 .iter()
                 .find_map(publication_date_from_tei_date)
-        })
-        .map(|date| date.year);
+        });
     let identifiers = publication_ids_from_bibl(bibl);
+    let authors: Vec<_> = analytic
+        .map(|analytic| {
+            analytic
+                .authors
+                .iter()
+                .map(reference_author_from_tei)
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            monograph
+                .map(|monograph| {
+                    monograph
+                        .authors
+                        .iter()
+                        .map(reference_author_from_tei)
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
 
-    StructuredReference {
+    Citation {
         id: bibl
             .global
             .xml_id
             .clone()
             .unwrap_or_else(|| format!("ref-{index}")),
-        title,
-        authors: analytic
-            .map(|analytic| {
-                analytic
-                    .authors
-                    .iter()
-                    .map(reference_author_from_tei)
-                    .collect()
+        cited: Literature::Scientific(ScientificLiterature {
+            core: LiteratureCore {
+                title,
+                publishing_date,
+                issn: identifiers.issn,
+                isbn: identifiers.isbn,
+            },
+            doi: identifiers.doi,
+        }),
+        authorings: authors
+            .into_iter()
+            .map(|author| Authoring {
+                author,
+                affiliations: Vec::new(),
             })
-            .unwrap_or_else(|| {
-                monograph
-                    .map(|monograph| {
-                        monograph
-                            .authors
-                            .iter()
-                            .map(reference_author_from_tei)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            }),
+            .collect(),
         journal: monograph.and_then(journal_title),
-        year,
-        identifiers,
     }
 }
