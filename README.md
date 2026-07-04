@@ -2,8 +2,11 @@
 
 Builds structured paper data from PDFs. The current pipeline extracts TEI XML with
 GROBID, parses it into internal models, transforms it into the domain `Paper`
-model, and exports JSON. The store layer is already present and is intended to
-become part of the export pipeline.
+model, and exports JSON. `Paper.source` is the PDF provenance for the whole
+aggregate, while `Paper.graph` is the TypeDB-facing metadata graph using
+relation-shaped structs such as authorings, affiliations, and publications.
+`Paper.content` stays on the paper aggregate for Qdrant storage. The store layer
+is already present and is intended to become part of the export pipeline.
 
 ## Flow
 
@@ -20,10 +23,11 @@ PDF file or directory
         -> Qdrant store (planned)
 ```
 
-The CLI entry point accepts a single PDF or a directory of PDFs:
+The entry point is configured through environment variables. `PDF_SOURCE`
+accepts a single PDF or a directory of PDFs:
 
 ```sh
-cargo run -- <pdf-path-or-dir> <tei-xml-dir> <json-dir>
+cargo run
 ```
 
 `batch` discovers PDF inputs and runs the document pipeline concurrently. 
@@ -44,9 +48,12 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 
 ## Local Services
 
-GROBID is required for the current PDF-to-JSON flow and is expected at `http://localhost:8070`.
+GROBID is required for the current PDF-to-JSON flow. Configure its endpoint with
+`GROBID_URL`.
 The TypeDB metadata schema lives at `schemas/typedb/domain.tql` and is exposed as
 `database_builder_scepa_rs::stores::typedb::DOMAIN_SCHEMA` for store configuration.
+Set `TYPEDB_WIPE_DATABASE=true` to delete and recreate the configured TypeDB
+database before ingestion; the domain schema is applied after the recreate.
 Chunk-level content, embeddings, and bounding boxes are expected to live in Qdrant payloads.
 
 ```sh
