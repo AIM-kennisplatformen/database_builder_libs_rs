@@ -533,6 +533,7 @@ dependencies = [
  "anyhow",
  "clap",
  "derive_more",
+ "futures-util",
  "qdrant-client",
  "quick-xml",
  "reqwest 0.13.4",
