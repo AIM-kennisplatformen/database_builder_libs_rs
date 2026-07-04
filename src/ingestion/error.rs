@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::ingestion::{
-    export::{json::JsonExportError, tei_xml::TeiXmlExportError},
+    export::{json::JsonExportError, tei_xml::TeiXmlExportError, typedb::TypedbExportError},
     extract::grobid::error::GrobidError,
     parse::tei::error::ParseError as TeiParseError,
 };
@@ -33,5 +33,11 @@ pub enum PipelineError {
     JsonExportError {
         #[from]
         source: JsonExportError,
+    },
+
+    #[error("failed to export domain paper to TypeDB")]
+    TypedbExportError {
+        #[from]
+        source: TypedbExportError,
     },
 }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
@@ -8,8 +8,9 @@ use crate::{
         export::{
             json::{json_path_for_tei_xml, write_paper_json},
             tei_xml::write_tei_xml,
+            typedb::write_paper_typedb,
         },
-        extract::grobid::{config::GrobidConfig, source::GrobidSource},
+        extract::grobid::source::GrobidSource,
         parse::tei::reader::parse_tei_xml_path,
         transform::tei::paper_from_tei,
     },
@@ -17,28 +18,27 @@ use crate::{
         domain::SourceHash,
         paths::{pdf::PdfPath, tei_xml::TeiXmlPath},
     },
+    stores::typedb::store::{TypedbConnected, TypedbStore},
 };
 
 pub async fn run_with_reporter<F>(
     pdf_path: PdfPath,
-    tei_xml_dir: PathBuf,
-    json_dir: PathBuf,
+    tei_xml_dir: &Path,
+    json_dir: &Path,
+    grobid: &GrobidSource,
+    typedb_store: &TypedbStore<TypedbConnected>,
     mut report: F,
 ) -> Result<()>
 where
     F: FnMut(&str),
 {
-    let grobid = GrobidSource::new(GrobidConfig {
-        url: "http://localhost:8070".into(),
-    });
-
     let file_stem = pdf_path
         .file_stem()
         .ok_or_else(|| PipelineError::MissingPdfFileStem {
             path: pdf_path.as_path().to_path_buf(),
         })
         .with_context(|| format!("deriving output filenames from {}", pdf_path.display()))?;
-    let tei_xml_path = TeiXmlPath::filename_from_stem(file_stem, &tei_xml_dir);
+    let tei_xml_path = TeiXmlPath::filename_from_stem(file_stem, tei_xml_dir);
 
     let pdf_bytes = match grobid
         .read_pdf(&pdf_path)
@@ -105,6 +105,17 @@ where
     }
 
     report(&format!("Saved domain JSON to {}", json_path.display()));
+
+    if let Err(error) = write_paper_typedb(&paper, typedb_store)
+        .await
+        .map_err(PipelineError::from)
+        .context("writing domain paper to TypeDB")
+    {
+        report(&format!("Failed to export domain paper to TypeDB: {error}"));
+        return Err(error);
+    }
+
+    report("Saved domain paper to TypeDB");
 
     Ok(())
 }
