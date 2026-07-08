@@ -11,12 +11,19 @@ use std::{
 use anyhow::{Context, Result, bail};
 use database_builder_scepa_rs::{
     ingestion::{
-        extract::grobid::{config::GrobidConfig, source::GrobidSource},
-        pipeline,
+        extract::{
+            embedding::{config::EmbeddingConfig, source::EmbeddingSource},
+            grobid::{config::GrobidConfig, source::GrobidSource},
+        },
+        pipeline::{self, PipelineSources, PipelineStores},
     },
     models::paths::pdf::PdfPath,
     stores::{
         connection::Disconnect,
+        qdrant::{
+            config::QdrantConfig,
+            store::{QdrantConnected, QdrantStore},
+        },
         typedb::{
             DOMAIN_SCHEMA,
             config::TypedbConfig,
@@ -67,6 +74,27 @@ struct Env {
     )]
     typedb_wipe_database: bool,
 
+    #[arg(long, env = "QDRANT_URL")]
+    qdrant_url: String,
+
+    #[arg(long, env = "QDRANT_COLLECTION")]
+    qdrant_collection: String,
+
+    #[arg(long, env = "QDRANT_VECTOR_SIZE")]
+    qdrant_vector_size: u64,
+
+    #[arg(long, env = "QDRANT_API_KEY", default_value = "")]
+    qdrant_api_key: String,
+
+    #[arg(long, env = "OPENAI_HOST")]
+    openai_host: String,
+
+    #[arg(long, env = "OPENAI_API_KEY")]
+    openai_api_key: String,
+
+    #[arg(long, env = "OPENAI_EMBEDDING_MODEL")]
+    openai_embedding_model: String,
+
     #[arg(long, env = "PARALLELISM")]
     parallelism: NonZeroUsize,
 
@@ -81,6 +109,8 @@ struct RunConfig {
     json_dir: Arc<PathBuf>,
     grobid: Arc<GrobidSource>,
     typedb_store: Arc<TypedbStore<TypedbConnected>>,
+    embedding_source: Arc<EmbeddingSource>,
+    qdrant_store: Arc<QdrantStore<QdrantConnected>>,
     parallelism: usize,
 }
 
@@ -131,12 +161,34 @@ async fn run(env: Env) -> Result<ExitCode> {
             .context("connecting to TypeDB for domain export")?,
     );
 
+    let embedding_source = Arc::new(EmbeddingSource::new(EmbeddingConfig::new(
+        env.openai_host,
+        env.openai_api_key,
+        env.openai_embedding_model,
+    )));
+
+    let qdrant_config = QdrantConfig::new(
+        env.qdrant_url,
+        env.qdrant_collection,
+        env.qdrant_vector_size,
+        env.qdrant_api_key,
+    );
+
+    let qdrant_store = Arc::new(
+        QdrantStore::new()
+            .connect(&qdrant_config)
+            .await
+            .context("connecting to Qdrant for chunk export")?,
+    );
+
     let config = RunConfig {
         pdf_source: env.pdf_source,
         tei_xml_dir: Arc::new(env.tei_xml_dir),
         json_dir: Arc::new(env.json_dir),
         grobid,
         typedb_store,
+        embedding_source,
+        qdrant_store,
         parallelism: env.parallelism.get(),
     };
 
@@ -182,6 +234,8 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
             let json_dir = config.json_dir.clone();
             let grobid = config.grobid.clone();
             let typedb_store = config.typedb_store.clone();
+            let embedding_source = config.embedding_source.clone();
+            let qdrant_store = config.qdrant_store.clone();
 
             tasks.spawn(async move {
                 let document_path = pdf_path.as_path().to_path_buf();
@@ -190,8 +244,14 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
                     pdf_path,
                     tei_xml_dir.as_ref().as_path(),
                     json_dir.as_ref().as_path(),
-                    grobid.as_ref(),
-                    typedb_store.as_ref(),
+                    PipelineSources {
+                        grobid: grobid.as_ref(),
+                        embedding_source: embedding_source.as_ref(),
+                    },
+                    PipelineStores {
+                        typedb_store: typedb_store.as_ref(),
+                        qdrant_store: qdrant_store.as_ref(),
+                    },
                     |_| {},
                 )
                 .await

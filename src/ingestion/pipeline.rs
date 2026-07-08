@@ -7,10 +7,11 @@ use crate::{
         error::PipelineError,
         export::{
             json::{json_path_for_tei_xml, write_paper_json},
+            qdrant::write_paper_qdrant,
             tei_xml::write_tei_xml,
             typedb::write_paper_typedb,
         },
-        extract::grobid::source::GrobidSource,
+        extract::{embedding::source::EmbeddingSource, grobid::source::GrobidSource},
         parse::tei::reader::parse_tei_xml_path,
         transform::tei::paper_from_tei,
     },
@@ -18,20 +19,42 @@ use crate::{
         domain::SourceHash,
         paths::{pdf::PdfPath, tei_xml::TeiXmlPath},
     },
-    stores::typedb::store::{TypedbConnected, TypedbStore},
+    stores::{
+        qdrant::store::{QdrantConnected, QdrantStore},
+        typedb::store::{TypedbConnected, TypedbStore},
+    },
 };
+
+pub struct PipelineSources<'a> {
+    pub grobid: &'a GrobidSource,
+    pub embedding_source: &'a EmbeddingSource,
+}
+
+pub struct PipelineStores<'a> {
+    pub typedb_store: &'a TypedbStore<TypedbConnected>,
+    pub qdrant_store: &'a QdrantStore<QdrantConnected>,
+}
 
 pub async fn run_with_reporter<F>(
     pdf_path: PdfPath,
     tei_xml_dir: &Path,
     json_dir: &Path,
-    grobid: &GrobidSource,
-    typedb_store: &TypedbStore<TypedbConnected>,
+    sources: PipelineSources<'_>,
+    stores: PipelineStores<'_>,
     mut report: F,
 ) -> Result<()>
 where
     F: FnMut(&str),
 {
+    let PipelineSources {
+        grobid,
+        embedding_source,
+    } = sources;
+    let PipelineStores {
+        typedb_store,
+        qdrant_store,
+    } = stores;
+
     let file_stem = pdf_path
         .file_stem()
         .ok_or_else(|| PipelineError::MissingPdfFileStem {
@@ -116,6 +139,17 @@ where
     }
 
     report("Saved domain paper to TypeDB");
+
+    if let Err(error) = write_paper_qdrant(&paper, embedding_source, qdrant_store)
+        .await
+        .map_err(PipelineError::from)
+        .context("writing domain paper to Qdrant")
+    {
+        report(&format!("Failed to export domain paper to Qdrant: {error}"));
+        return Err(error);
+    }
+
+    report("Saved domain paper to Qdrant");
 
     Ok(())
 }
