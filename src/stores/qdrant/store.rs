@@ -111,6 +111,10 @@ impl Connect for QdrantStore<QdrantDisconnected> {
 }
 
 impl QdrantStore<QdrantConnected> {
+    pub fn vector_dimension(&self) -> u64 {
+        self.state.vector_dimension
+    }
+
     pub async fn upsert_point(
         &self,
         id: impl Into<PointId>,
