@@ -2,11 +2,11 @@
 
 Builds structured paper data from PDFs. The current pipeline extracts TEI XML with
 GROBID, parses it into internal models, transforms it into the domain `Paper`
-model, and exports JSON. `Paper.source` is the PDF provenance for the whole
-aggregate, while `Paper.graph` is the TypeDB-facing metadata graph using
-relation-shaped structs such as authorings, affiliations, and publications.
-`Paper.content` stays on the paper aggregate for Qdrant storage. The store layer
-is already present and is intended to become part of the export pipeline.
+model, and exports it to JSON, TypeDB, and Qdrant. `Paper.source` is the PDF
+provenance for the whole aggregate, while `Paper.graph` is the TypeDB-facing
+metadata graph using relation-shaped structs such as authorings, affiliations,
+and publications. `Paper.content`'s paragraph-level text chunks (plus the
+abstract) are embedded and stored as Qdrant payloads.
 
 ## Flow
 
@@ -19,8 +19,8 @@ PDF file or directory
     -> domain Paper
     -> exporters
         -> JSON file
-        -> TypeDB store (planned)
-        -> Qdrant store (planned)
+        -> TypeDB store
+        -> Qdrant store (chunks embedded via the configured OpenAI-compatible endpoint)
 ```
 
 The entry point is configured through environment variables. `PDF_SOURCE`
@@ -36,13 +36,13 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 ## Architecture
 
 - `src/ingestion`: pipeline orchestration and document flow.
-- `src/ingestion/extract`: external extraction sources
+- `src/ingestion/extract`: external extraction/embedding sources
   - GROBID.
+  - Embedding client for an OpenAI-compatible `/embeddings` endpoint, with retry/backoff on rate limiting.
 - `src/ingestion/parse`: converts TEI XML into TEI structs.
 - `src/ingestion/transform`: maps TEI structs into the domain model.
 - `src/ingestion/export`: output sinks
-  - JSON and TEI XML are wired today.
-  - Stores are expected to join here.
+  - JSON, TEI XML, TypeDB, and Qdrant are all wired today.
 - `src/models`: TEI, path, and domain models.
 - `src/stores`: database adapters with typed connected/disconnected states.
 
@@ -54,7 +54,15 @@ The TypeDB metadata schema lives at `schemas/typedb/domain.tql` and is exposed a
 `database_builder_scepa_rs::stores::typedb::DOMAIN_SCHEMA` for store configuration.
 Set `TYPEDB_WIPE_DATABASE=true` to delete and recreate the configured TypeDB
 database before ingestion; the domain schema is applied after the recreate.
-Chunk-level content, embeddings, and bounding boxes are expected to live in Qdrant payloads.
+
+Chunk-level content lives in Qdrant payloads: the paper's abstract (if present)
+and every non-empty paragraph-level text chunk are embedded via the
+`OPENAI_HOST`/`OPENAI_API_KEY`/`OPENAI_EMBEDDING_MODEL`-configured endpoint and
+upserted into the `QDRANT_COLLECTION` collection. Point ids are derived
+deterministically from the paper's source hash and each chunk's locator, so
+re-ingesting a paper updates its existing points instead of duplicating them.
+Each payload carries `source`, `kind` (`abstract` or `section`), `section_index`,
+`section_title`, `chunk_index`, and `text`.
 
 ```sh
 docker compose up -d
