@@ -61,6 +61,8 @@ and every non-empty paragraph-level text chunk are embedded via the
 upserted into the `QDRANT_COLLECTION` collection. Point ids are derived
 deterministically from the paper's source hash and each chunk's locator, so
 re-ingesting a paper updates its existing points instead of duplicating them.
+Set `QDRANT_WIPE_COLLECTION=true` to delete and recreate the configured Qdrant
+collection before ingestion.
 Each payload carries `source`, `kind` (`abstract` or `section`), `section_index`,
 `section_title`, `chunk_index`, and `text`.
 

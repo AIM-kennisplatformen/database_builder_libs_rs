@@ -20,6 +20,12 @@ pub enum QdrantStoreError {
         #[source]
         source: Box<QdrantError>,
     },
+    #[error("failed to delete Qdrant collection `{collection}`")]
+    DeleteCollection {
+        collection: String,
+        #[source]
+        source: Box<QdrantError>,
+    },
     #[error("expected vector dimension {expected}, got {actual}")]
     VectorDimensionMismatch { expected: u64, actual: usize },
     #[error("failed to upsert points into Qdrant collection `{collection}`")]

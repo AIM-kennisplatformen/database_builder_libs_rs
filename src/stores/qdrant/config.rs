@@ -7,6 +7,7 @@ pub struct QdrantConfig {
     pub vector_dimension: u64,
     pub distance: Distance,
     pub api_key: String,
+    pub wipe_collection: bool,
 }
 
 impl QdrantConfig {
@@ -15,6 +16,7 @@ impl QdrantConfig {
         collection: impl Into<String>,
         vector_dimension: u64,
         api_key: impl Into<String>,
+        wipe_collection: bool,
     ) -> Self {
         Self {
             url: url.into(),
@@ -22,6 +24,7 @@ impl QdrantConfig {
             vector_dimension,
             distance: Distance::Cosine,
             api_key: api_key.into(),
+            wipe_collection,
         }
     }
 }

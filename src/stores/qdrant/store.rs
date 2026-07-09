@@ -48,9 +48,15 @@ impl QdrantStore<QdrantDisconnected> {
             })
             .with_context(|| format!("building Qdrant client for `{}`", config.url))?;
 
-        Self::ensure_collection(&client, config)
-            .await
-            .with_context(|| format!("preparing Qdrant collection `{}`", config.collection))?;
+        if config.wipe_collection {
+            Self::recreate_collection(&client, config)
+                .await
+                .with_context(|| format!("recreating Qdrant collection `{}`", config.collection))?;
+        } else {
+            Self::ensure_collection(&client, config)
+                .await
+                .with_context(|| format!("preparing Qdrant collection `{}`", config.collection))?;
+        }
 
         Ok(QdrantStore {
             state: QdrantConnected {
@@ -80,6 +86,39 @@ impl QdrantStore<QdrantDisconnected> {
             return Ok(());
         }
 
+        Self::create_collection(client, config).await
+    }
+
+    async fn recreate_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
+        let exists = client
+            .collection_exists(&config.collection)
+            .await
+            .map_err(|source| QdrantStoreError::CheckCollection {
+                collection: config.collection.clone(),
+                source: Box::new(source),
+            })
+            .with_context(|| {
+                format!(
+                    "checking whether Qdrant collection `{}` exists",
+                    config.collection
+                )
+            })?;
+
+        if exists {
+            client
+                .delete_collection(&config.collection)
+                .await
+                .map_err(|source| QdrantStoreError::DeleteCollection {
+                    collection: config.collection.clone(),
+                    source: Box::new(source),
+                })
+                .with_context(|| format!("deleting Qdrant collection `{}`", config.collection))?;
+        }
+
+        Self::create_collection(client, config).await
+    }
+
+    async fn create_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
         client
             .create_collection(
                 CreateCollectionBuilder::new(&config.collection).vectors_config(

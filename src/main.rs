@@ -84,6 +84,14 @@ struct Env {
     #[arg(long, env = "QDRANT_API_KEY", default_value = "")]
     qdrant_api_key: String,
 
+    #[arg(
+        long,
+        env = "QDRANT_WIPE_COLLECTION",
+        default_value_t = false,
+        action = clap::ArgAction::Set
+    )]
+    qdrant_wipe_collection: bool,
+
     #[arg(long, env = "OPENAI_HOST")]
     openai_host: String,
 
@@ -170,6 +178,7 @@ async fn run(env: Env) -> Result<ExitCode> {
         env.qdrant_collection,
         env.qdrant_vector_size,
         env.qdrant_api_key,
+        env.qdrant_wipe_collection,
     );
 
     let qdrant_store = Arc::new(
