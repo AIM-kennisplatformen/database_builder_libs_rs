@@ -11,7 +11,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use database_builder_scepa_rs::{
     ingestion::{
-        extract::grobid::{config::GrobidConfig, source::GrobidSource},
+        extract::{
+            grobid::{config::GrobidConfig, source::GrobidSource},
+            ror::{config::RorConfig, source::RorSource},
+        },
         pipeline::{self, PipelineSources, PipelineStores},
         transform::embedding::{config::EmbeddingConfig, source::EmbeddingSource},
     },
@@ -72,6 +75,9 @@ struct Env {
     )]
     typedb_wipe_database: bool,
 
+    #[arg(long, env = "ROR_HOST", default_value = "https://api.ror.org")]
+    ror_host: String,
+
     #[arg(long, env = "QDRANT_URL")]
     qdrant_url: String,
 
@@ -115,6 +121,7 @@ struct RunConfig {
     json_dir: Arc<PathBuf>,
     grobid: Arc<GrobidSource>,
     typedb_store: Arc<TypedbStore<TypedbConnected>>,
+    ror_source: Arc<RorSource>,
     embedding_source: Arc<EmbeddingSource>,
     qdrant_store: Arc<QdrantStore<QdrantConnected>>,
     parallelism: usize,
@@ -171,6 +178,8 @@ async fn run(env: Env) -> Result<ExitCode> {
             .context("connecting to TypeDB for domain export")?,
     );
 
+    let ror_source = Arc::new(RorSource::new(RorConfig::new(env.ror_host)));
+
     let embedding_source = Arc::new(EmbeddingSource::new(EmbeddingConfig::new(
         env.openai_host,
         env.openai_api_key,
@@ -198,6 +207,7 @@ async fn run(env: Env) -> Result<ExitCode> {
         json_dir: Arc::new(env.json_dir),
         grobid,
         typedb_store,
+        ror_source,
         embedding_source,
         qdrant_store,
         parallelism: env.parallelism.get(),
@@ -257,6 +267,7 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
             let json_dir = config.json_dir.clone();
             let grobid = config.grobid.clone();
             let typedb_store = config.typedb_store.clone();
+            let ror_source = config.ror_source.clone();
             let embedding_source = config.embedding_source.clone();
             let qdrant_store = config.qdrant_store.clone();
 
@@ -269,6 +280,7 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
                     json_dir.as_ref().as_path(),
                     PipelineSources {
                         grobid: grobid.as_ref(),
+                        ror_source: ror_source.as_ref(),
                         embedding_source: embedding_source.as_ref(),
                     },
                     PipelineStores {

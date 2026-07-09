@@ -38,9 +38,12 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 - `src/ingestion`: pipeline orchestration and document flow.
 - `src/ingestion/extract`: external extraction sources
   - GROBID.
+  - ROR (Research Organization Registry) client for resolving institution names to canonical organization ids.
 - `src/ingestion/parse`: converts TEI XML into TEI structs.
 - `src/ingestion/transform`: maps TEI structs into the domain model.
   - Embedding client for an OpenAI-compatible `/embeddings` endpoint, with retry/backoff on rate limiting.
+- `src/ingestion/enrich`: post-transform, pre-export enrichment of the domain model
+  - Resolves each institution's ROR id by name.
 - `src/ingestion/export`: output sinks
   - JSON, TEI XML, TypeDB, and Qdrant are all wired today.
 - `src/models`: TEI, path, and domain models.
@@ -54,6 +57,16 @@ The TypeDB metadata schema lives at `schemas/typedb/domain.tql` and is exposed a
 `database_builder_scepa_rs::stores::typedb::DOMAIN_SCHEMA` for store configuration.
 Set `TYPEDB_WIPE_DATABASE=true` to delete and recreate the configured TypeDB
 database before ingestion; the domain schema is applied after the recreate.
+
+Every institution's name is matched against `ROR_HOST`'s affiliation-matching
+endpoint (`ror.org`'s purpose-built endpoint for "large-scale programmatic
+matching of complex, unstructured text strings to ROR IDs") and, on a match,
+tagged with a `ror-id` attribute. This does not merge or deduplicate
+institution entities itself — it only tags each one, so institutions that are
+really the same organization but differ by typo or naming variant can be
+merged later in a separate pass, keyed on `ror-id`, over already-exported
+data. A failed or missing lookup is treated as no match and never fails the
+paper's export.
 
 Chunk-level content lives in Qdrant payloads: the paper's abstract (if present)
 and every non-empty paragraph-level text chunk are embedded via the

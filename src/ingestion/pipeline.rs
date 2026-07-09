@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     ingestion::{
+        enrich::ror::resolve_institution_ror_ids,
         error::PipelineError,
         export::{
             json::{json_path_for_tei_xml, write_paper_json},
@@ -11,7 +12,7 @@ use crate::{
             tei_xml::write_tei_xml,
             typedb::write_paper_typedb,
         },
-        extract::grobid::source::GrobidSource,
+        extract::{grobid::source::GrobidSource, ror::source::RorSource},
         parse::tei::reader::parse_tei_xml_path,
         transform::{embedding::source::EmbeddingSource, tei::paper_from_tei},
     },
@@ -27,6 +28,7 @@ use crate::{
 
 pub struct PipelineSources<'a> {
     pub grobid: &'a GrobidSource,
+    pub ror_source: &'a RorSource,
     pub embedding_source: &'a EmbeddingSource,
 }
 
@@ -48,6 +50,7 @@ where
 {
     let PipelineSources {
         grobid,
+        ror_source,
         embedding_source,
     } = sources;
     let PipelineStores {
@@ -115,8 +118,11 @@ where
         }
     };
 
-    let paper = paper_from_tei(&tei_document, source);
+    let mut paper = paper_from_tei(&tei_document, source);
     report("Transformed tei document to domain paper");
+
+    resolve_institution_ror_ids(&mut paper, ror_source).await;
+    report("Resolved institution ROR ids");
 
     let json_path = json_path_for_tei_xml(&tei_xml_path, json_dir);
     if let Err(error) = write_paper_json(&paper, &json_path)
