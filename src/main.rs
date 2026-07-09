@@ -199,6 +199,12 @@ async fn run(env: Env) -> Result<ExitCode> {
         parallelism: env.parallelism.get(),
     };
 
+    config
+        .qdrant_store
+        .update_indexing_treshold(0)
+        .await
+        .context("disabling Qdrant indexing before chunk export")?;
+
     let source_display = config.pdf_source.display().to_string();
 
     let failure_count = {
@@ -211,6 +217,12 @@ async fn run(env: Env) -> Result<ExitCode> {
             .disconnect()
             .context("disconnecting from TypeDB after domain export")?;
     }
+
+    config
+        .qdrant_store
+        .update_indexing_treshold(20_000)
+        .await
+        .context("restoring Qdrant indexing after chunk export")?;
 
     if failure_count > 0 {
         Ok(ExitCode::FAILURE)

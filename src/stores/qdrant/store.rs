@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use qdrant_client::{
     Payload, Qdrant,
     qdrant::{
-        CreateCollectionBuilder, PointId, PointStruct, PointsOperationResponse, QueryPointsBuilder,
-        QueryResponse, UpsertPointsBuilder, VectorParamsBuilder,
+        CreateCollectionBuilder, OptimizersConfigDiffBuilder, PointId, PointStruct,
+        PointsOperationResponse, QueryPointsBuilder, QueryResponse, UpdateCollectionBuilder,
+        UpsertPointsBuilder, VectorParamsBuilder,
     },
 };
 
@@ -150,6 +151,30 @@ impl Connect for QdrantStore<QdrantDisconnected> {
 }
 
 impl QdrantStore<QdrantConnected> {
+    pub async fn update_indexing_treshold(&self, threshold: u64) -> Result<()> {
+        self.state
+            .client
+            .update_collection(
+                UpdateCollectionBuilder::new(&self.state.collection).optimizers_config(
+                    OptimizersConfigDiffBuilder::default().indexing_threshold(threshold),
+                ),
+            )
+            .await
+            .map_err(|source| QdrantStoreError::UpdateIndexingThreshold {
+                collection: self.state.collection.clone(),
+                threshold,
+                source: Box::new(source),
+            })
+            .with_context(|| {
+                format!(
+                    "updating indexing threshold to {threshold} for Qdrant collection `{}`",
+                    self.state.collection
+                )
+            })?;
+
+        Ok(())
+    }
+
     pub fn vector_dimension(&self) -> u64 {
         self.state.vector_dimension
     }
