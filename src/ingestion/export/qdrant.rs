@@ -4,7 +4,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    ingestion::extract::embedding::{error::EmbeddingError, source::EmbeddingSource},
+    ingestion::transform::embedding::{error::EmbeddingError, source::EmbeddingSource},
     models::domain::Paper,
     stores::qdrant::store::{QdrantConnected, QdrantStore},
 };
@@ -81,7 +81,7 @@ struct PaperChunk<'a> {
 }
 
 fn collect_chunks(paper: &Paper) -> Vec<PaperChunk<'_>> {
-    let mut chunks = Vec::new();
+    let mut chunks = vec![];
 
     if let Some(abstract_text) = non_empty(paper.metadata.abstract_text.as_deref()) {
         chunks.push(PaperChunk {
@@ -159,9 +159,9 @@ mod tests {
                     },
                     doi: None,
                 }),
-                authorings: Vec::new(),
-                publications: Vec::new(),
-                citations: Vec::new(),
+                authorings: vec![],
+                publications: vec![],
+                citations: vec![],
             },
             metadata: PaperMetadata {
                 abstract_text: abstract_text.map(str::to_owned),

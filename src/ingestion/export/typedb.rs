@@ -138,7 +138,7 @@ async fn execute_query(transaction: &Transaction, query: &str) -> Result<(), Typ
 fn paper_typeql_queries(paper: &Paper) -> Vec<String> {
     let source = paper.source.as_str();
     let literature = literature_ref(source, &paper.graph.literature, "literature");
-    let mut queries = Vec::new();
+    let mut queries = vec![];
 
     push_unique_query(&mut queries, put_entity_query(&literature));
 
@@ -558,7 +558,7 @@ mod tests {
                             forename: Some("Grace".to_owned()),
                             surname: Some("Hopper".to_owned()),
                         },
-                        affiliations: Vec::new(),
+                        affiliations: vec![],
                     }],
                     journal: Some("Journal of Citations".to_owned()),
                 }],

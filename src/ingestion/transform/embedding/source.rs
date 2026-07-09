@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::{Response, StatusCode, header::RETRY_AFTER};
 use serde::{Deserialize, Serialize};
 
-use crate::ingestion::extract::embedding::{config::EmbeddingConfig, error::EmbeddingError};
+use crate::ingestion::transform::embedding::{config::EmbeddingConfig, error::EmbeddingError};
 
 const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
@@ -30,7 +30,7 @@ impl EmbeddingSource {
     /// response body) when it provides one.
     pub async fn embed(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         if inputs.is_empty() {
-            return Ok(Vec::new());
+            return Ok(vec![]);
         }
 
         let mut attempt = 1;
@@ -52,7 +52,7 @@ impl EmbeddingSource {
     }
 
     async fn embed_once(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-        let endpoint = format!("{}/embeddings", self.config.host.trim_end_matches('/'));
+        let endpoint = format!("{}embeddings", self.config.host);
         let body = serde_json::to_vec(&EmbeddingsRequest {
             model: &self.config.model,
             input: inputs,
@@ -215,6 +215,7 @@ mod tests {
             .await
             .expect("empty input never makes a request");
 
-        assert_eq!(result, Vec::<Vec<f32>>::new());
+        let expected: Vec<Vec<f32>> = vec![];
+        assert_eq!(result, expected);
     }
 }

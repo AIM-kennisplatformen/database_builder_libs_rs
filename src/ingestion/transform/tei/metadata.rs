@@ -24,7 +24,7 @@ pub fn paper_metadata_from_tei(document: &TeiDocument) -> PaperMetadata {
         .and_then(|profile| profile.abstract_.as_ref())
         .and_then(abstract_text);
 
-    let mut funding_statements = Vec::new();
+    let mut funding_statements = vec![];
     for funder in &document.header.file_desc.title_stmt.funders {
         push_unique(&mut funding_statements, funder_text(funder));
     }
@@ -81,7 +81,7 @@ fn keywords_from_profile(profile: &ProfileDesc) -> Vec<String> {
         .text_class
         .as_ref()
         .map(|text_class| {
-            let mut keywords = Vec::new();
+            let mut keywords = vec![];
             for keyword_block in &text_class.keywords {
                 collect_keywords(keyword_block, &mut keywords);
             }
@@ -106,7 +106,7 @@ fn collect_keywords(keyword_block: &Keywords, keywords: &mut Vec<String>) {
 
 fn acknowledgements_from_tei(document: &TeiDocument) -> Option<String> {
     let back = document.text.as_ref()?.back.as_ref()?;
-    let mut chunks = Vec::new();
+    let mut chunks = vec![];
 
     for block in &back.content {
         if let Block::Division(division) = block

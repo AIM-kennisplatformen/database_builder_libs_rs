@@ -50,7 +50,7 @@ pub fn document_content_from_tei(document: &TeiDocument) -> DocumentContent {
 }
 
 pub fn citations_from_tei(document: &TeiDocument) -> Vec<Citation> {
-    let mut citations = Vec::new();
+    let mut citations = vec![];
 
     if let Some(text) = document.text.as_ref()
         && let Some(back) = text.back.as_ref()
@@ -150,7 +150,7 @@ fn figure_from_tei(figure: &TeiFigure, index: usize) -> DomainFigure {
             .iter()
             .find_map(|label| inline_text(&label.content)),
         caption: figure_caption(figure),
-        bounding_boxes: Vec::new(),
+        bounding_boxes: vec![],
     }
 }
 
@@ -164,7 +164,7 @@ fn table_from_tei(table: &TeiTable, index: usize) -> DomainTable {
         label: None,
         caption: table.heads.iter().find_map(head_text),
         raw_content: table_raw_content(table),
-        bounding_boxes: Vec::new(),
+        bounding_boxes: vec![],
     }
 }
 
@@ -242,7 +242,7 @@ fn citation_from_bibl(bibl: &BiblStruct, index: usize) -> Citation {
             .into_iter()
             .map(|author| Authoring {
                 author,
-                affiliations: Vec::new(),
+                affiliations: vec![],
             })
             .collect(),
         journal: monograph.and_then(journal_title),

@@ -11,11 +11,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use database_builder_scepa_rs::{
     ingestion::{
-        extract::{
-            embedding::{config::EmbeddingConfig, source::EmbeddingSource},
-            grobid::{config::GrobidConfig, source::GrobidSource},
-        },
+        extract::grobid::{config::GrobidConfig, source::GrobidSource},
         pipeline::{self, PipelineSources, PipelineStores},
+        transform::embedding::{config::EmbeddingConfig, source::EmbeddingSource},
     },
     models::paths::pdf::PdfPath,
     stores::{
@@ -296,7 +294,7 @@ fn collect_pdf_paths(pdf_source: &Path) -> Result<Vec<PdfPath>> {
     let entries = fs::read_dir(pdf_source)
         .with_context(|| format!("reading PDF directory {}", pdf_source.display()))?;
 
-    let mut pdf_paths = Vec::new();
+    let mut pdf_paths = vec![];
 
     for entry in entries {
         let path = entry

@@ -36,11 +36,11 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 ## Architecture
 
 - `src/ingestion`: pipeline orchestration and document flow.
-- `src/ingestion/extract`: external extraction/embedding sources
+- `src/ingestion/extract`: external extraction sources
   - GROBID.
-  - Embedding client for an OpenAI-compatible `/embeddings` endpoint, with retry/backoff on rate limiting.
 - `src/ingestion/parse`: converts TEI XML into TEI structs.
 - `src/ingestion/transform`: maps TEI structs into the domain model.
+  - Embedding client for an OpenAI-compatible `/embeddings` endpoint, with retry/backoff on rate limiting.
 - `src/ingestion/export`: output sinks
   - JSON, TEI XML, TypeDB, and Qdrant are all wired today.
 - `src/models`: TEI, path, and domain models.

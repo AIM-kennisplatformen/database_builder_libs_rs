@@ -11,9 +11,9 @@ use crate::{
             tei_xml::write_tei_xml,
             typedb::write_paper_typedb,
         },
-        extract::{embedding::source::EmbeddingSource, grobid::source::GrobidSource},
+        extract::grobid::source::GrobidSource,
         parse::tei::reader::parse_tei_xml_path,
-        transform::tei::paper_from_tei,
+        transform::{embedding::source::EmbeddingSource, tei::paper_from_tei},
     },
     models::{
         domain::SourceHash,
