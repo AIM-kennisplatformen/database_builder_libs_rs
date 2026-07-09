@@ -10,6 +10,19 @@ impl SourceHash {
         Self(lower_hex(Sha256::digest(bytes).as_ref()))
     }
 
+    /// Parses a value already claiming to be a source hash (e.g. a path
+    /// parameter), validating it's a well-formed lowercase sha256 hex
+    /// digest rather than trusting it outright.
+    pub fn parse(value: impl Into<String>) -> Option<Self> {
+        let value = value.into();
+        let is_valid = value.len() == 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+
+        is_valid.then_some(Self(value))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -38,5 +51,15 @@ mod tests {
             source.as_str(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn parse_accepts_a_well_formed_digest_and_rejects_others() {
+        let digest = SourceHash::from_bytes(b"abc").as_str().to_owned();
+
+        assert!(SourceHash::parse(digest.clone()).is_some());
+        assert!(SourceHash::parse(digest.to_uppercase()).is_none());
+        assert!(SourceHash::parse(&digest[..63]).is_none());
+        assert!(SourceHash::parse("not-a-hash".repeat(7)).is_none());
     }
 }
