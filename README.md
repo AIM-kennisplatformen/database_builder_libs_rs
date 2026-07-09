@@ -68,6 +68,15 @@ merged later in a separate pass, keyed on `ror-id`, over already-exported
 data. A failed or missing lookup is treated as no match and never fails the
 paper's export.
 
+The same pass also classifies each institution's `kind` (`university`,
+`government-institution`, etc., per `schemas/typedb/domain.tql`). ROR's own
+`types` field only gives a coarse `education`/`government`/... signal, so it's
+used as a fallback; name keywords take precedence for distinctions ROR
+doesn't make, such as university vs. university-of-applied-sciences
+(hogeschool/Fachhochschule), or semi-government institutes (TNO, RIVM, ...)
+that ROR has no equivalent category for. See
+`src/ingestion/enrich/institution_kind.rs` for the exact keyword lists.
+
 Chunk-level content lives in Qdrant payloads: the paper's abstract (if present)
 and every non-empty paragraph-level text chunk are embedded via the
 `OPENAI_HOST`/`OPENAI_API_KEY`/`OPENAI_EMBEDDING_MODEL`-configured endpoint and
