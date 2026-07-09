@@ -50,14 +50,14 @@ impl QdrantStore<QdrantDisconnected> {
             .with_context(|| format!("building Qdrant client for `{}`", config.url))?;
 
         if config.wipe_collection {
-            Self::recreate_collection(&client, config)
+            Self::delete_collection(&client, config)
                 .await
-                .with_context(|| format!("recreating Qdrant collection `{}`", config.collection))?;
-        } else {
-            Self::ensure_collection(&client, config)
-                .await
-                .with_context(|| format!("preparing Qdrant collection `{}`", config.collection))?;
+                .with_context(|| format!("deleting Qdrant collection `{}`", config.collection))?;
         }
+
+        Self::ensure_collection(&client, config)
+            .await
+            .with_context(|| format!("preparing Qdrant collection `{}`", config.collection))?;
 
         Ok(QdrantStore {
             state: QdrantConnected {
@@ -90,7 +90,7 @@ impl QdrantStore<QdrantDisconnected> {
         Self::create_collection(client, config).await
     }
 
-    async fn recreate_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
+    async fn delete_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
         let exists = client
             .collection_exists(&config.collection)
             .await
@@ -105,18 +105,20 @@ impl QdrantStore<QdrantDisconnected> {
                 )
             })?;
 
-        if exists {
-            client
-                .delete_collection(&config.collection)
-                .await
-                .map_err(|source| QdrantStoreError::DeleteCollection {
-                    collection: config.collection.clone(),
-                    source: Box::new(source),
-                })
-                .with_context(|| format!("deleting Qdrant collection `{}`", config.collection))?;
+        if !exists {
+            return Ok(());
         }
 
-        Self::create_collection(client, config).await
+        client
+            .delete_collection(&config.collection)
+            .await
+            .map_err(|source| QdrantStoreError::DeleteCollection {
+                collection: config.collection.clone(),
+                source: Box::new(source),
+            })
+            .with_context(|| format!("deleting Qdrant collection `{}`", config.collection))?;
+
+        Ok(())
     }
 
     async fn create_collection(client: &Qdrant, config: &QdrantConfig) -> Result<()> {
