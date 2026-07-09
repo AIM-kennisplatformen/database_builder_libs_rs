@@ -3,9 +3,8 @@ use typedb_driver::Error as TypedbDriverError;
 
 #[derive(Debug, Error)]
 pub enum TypedbStoreError {
-    #[error("invalid TypeDB address `{address}`")]
-    InvalidAddress {
-        address: String,
+    #[error("failed to build TypeDB driver options")]
+    DriverOptions {
         #[source]
         source: Box<TypedbDriverError>,
     },
