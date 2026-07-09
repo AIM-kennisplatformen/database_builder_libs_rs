@@ -244,7 +244,7 @@ async fn login(State(state): State<AppState>, jar: SignedCookieJar) -> impl Into
             CsrfToken::new_random,
             Nonce::new_random,
         )
-        .add_scope(Scope::new("openid".to_owned()))
+        // CoreAuthenticationFlow::AuthorizationCode already adds "openid".
         .add_scope(Scope::new("email".to_owned()))
         .add_scope(Scope::new("profile".to_owned()))
         .set_pkce_challenge(pkce_challenge)

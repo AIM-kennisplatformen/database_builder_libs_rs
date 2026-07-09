@@ -2,7 +2,13 @@ use anyhow::{Context, Result};
 use openidconnect::core::CoreProviderMetadata;
 use openidconnect::{ClientId, ClientSecret, IssuerUrl, RedirectUrl};
 
-const WELL_KNOWN_SUFFIX: &str = "/.well-known/openid-configuration";
+// Deliberately no leading slash: Authentik's per-application issuer ends
+// in its own trailing slash (e.g. ".../application/o/<slug>/"), and its
+// discovery URL is that issuer with this suffix appended directly, so
+// stripping this (rather than "/.well-known/...") is what leaves the
+// trailing slash intact for the issuer-match check against the discovery
+// document's own `issuer` claim.
+const WELL_KNOWN_SUFFIX: &str = ".well-known/openid-configuration";
 
 /// Discovered Authentik OIDC provider configuration, fetched once at
 /// startup. Deliberately *not* a single fully-built `CoreClient`: each
