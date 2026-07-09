@@ -125,11 +125,10 @@ cargo run --bin server
 
 All three routes require `Authorization: Bearer <key>`, checked against
 `METADATA_API_KEYS` (the same `"app-name:key,other-app:key"` pattern used
-elsewhere). Real user authentication (Authentik login) happens at the edge
-in front of this server -- e.g. a Caddy reverse proxy with a
-forward-auth/outpost integration -- not in this process itself; this
-server only needs to trust the machine caller (the reverse proxy) that
-reaches it directly.
+elsewhere). This server has no user-facing login of its own -- real user
+authentication (an Authentik login) is upload_interface's own backend's
+job; it's the only caller here, authenticating itself with a static
+bearer key from its own `SCEPA_METADATA_API_KEY` config.
 
 This server never writes to TypeDB or Qdrant -- it only produces metadata
 for a form to autocomplete from. Ingestion into TypeDB/Qdrant still only
