@@ -100,3 +100,28 @@ the paper's ingestion.
 ```sh
 docker compose up -d
 ```
+
+## Metadata server
+
+A second binary, `server`, exposes GROBID-derived metadata over HTTP for
+[upload_interface](../upload_interface)'s field-autocomplete form, independently
+of the batch pipeline above:
+
+```sh
+cargo run --bin server
+```
+
+- `PUT /metadata/{sha256}` (multipart, field `file`): accepts a PDF, verifies
+  its sha256 matches the path parameter, runs it through GROBID + TEI parsing
+  + the same domain transform used by the batch pipeline, maps the result
+  into upload_interface's `Field` schema, caches it on disk keyed by sha256,
+  and returns it.
+- `GET /metadata/{sha256}`: retrieves a previously-cached result without
+  rerunning GROBID.
+
+Both routes require `Authorization: Bearer <key>`, checked against
+`METADATA_API_KEYS` (the same `"app-name:key,other-app:key"` pattern used
+elsewhere). This server never writes to TypeDB or Qdrant -- it only produces
+metadata for a form to autocomplete from. Ingestion into TypeDB/Qdrant still
+only happens when the batch pipeline (`cargo run`) is run, e.g. once a user
+saves the document in upload_interface.
