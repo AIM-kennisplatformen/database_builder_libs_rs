@@ -6,8 +6,8 @@ use typedb_driver::{Error as TypedbDriverError, Transaction, answer::QueryAnswer
 
 use crate::{
     models::domain::{
-        Author, Authoring, Department, Institution, InstitutionKind, Literature, Paper,
-        PublicationDate,
+        Author, Authoring, Department, Funding, Institution, InstitutionKind, Literature, Paper,
+        Project, PublicationDate,
     },
     stores::typedb::store::{TypedbConnected, TypedbStore},
 };
@@ -160,6 +160,10 @@ fn paper_typeql_queries(paper: &Paper) -> Vec<String> {
         );
     }
 
+    for funding in &paper.graph.fundings {
+        push_funding_queries(&mut queries, source, &literature, funding);
+    }
+
     for citation in &paper.graph.citations {
         let cited_source = citation_source(source, &citation.id);
         let cited = literature_ref(&cited_source, &citation.cited, "cited");
@@ -227,6 +231,35 @@ fn push_authoring_queries(
             );
         }
     }
+}
+
+fn push_funding_queries(
+    queries: &mut Vec<String>,
+    source: &str,
+    literature: &EntityRef,
+    funding: &Funding,
+) {
+    let institution = institution_ref(source, &funding.funder, "institution");
+    let project = project_ref(source, &funding.project, "project");
+
+    push_unique_query(queries, put_entity_query(&institution));
+    push_unique_query(queries, put_entity_query(&project));
+    push_unique_query(
+        queries,
+        put_relation_query(
+            "research_activity",
+            "research-activity",
+            &[("institution", &institution), ("project", &project)],
+        ),
+    );
+    push_unique_query(
+        queries,
+        put_relation_query(
+            "project_literature",
+            "project-literature",
+            &[("project", &project), ("literature", literature)],
+        ),
+    );
 }
 
 fn push_unique_query(queries: &mut Vec<String>, query: String) {
@@ -302,6 +335,18 @@ fn department_ref(source: &str, department: &Department, variable: &'static str)
     }
 }
 
+fn project_ref(source: &str, project: &Project, variable: &'static str) -> EntityRef {
+    let mut attributes = sourced_attributes(source);
+    push_optional_string_attribute(&mut attributes, "project-name", project.name.as_deref());
+    push_optional_integer_attribute(&mut attributes, "project-number", project.number);
+
+    EntityRef {
+        variable,
+        type_label: "project",
+        attributes,
+    }
+}
+
 fn institution_type_label(kind: &InstitutionKind) -> &'static str {
     match kind {
         InstitutionKind::Institution => "institution",
@@ -349,6 +394,19 @@ fn typeql_date_value(date: &PublicationDate) -> Option<String> {
         "{:04}-{:02}-{:02}",
         date.year, date.month?, date.day?
     ))
+}
+
+fn push_optional_integer_attribute(
+    attributes: &mut Vec<Attribute>,
+    label: &'static str,
+    value: Option<i64>,
+) {
+    if let Some(value) = value {
+        attributes.push(Attribute {
+            label,
+            value: TypeqlValue::Integer(value),
+        });
+    }
 }
 
 fn put_entity_query(entity: &EntityRef) -> String {
@@ -415,6 +473,7 @@ impl Attribute {
 enum TypeqlValue {
     String(String),
     Date(String),
+    Integer(i64),
 }
 
 impl std::fmt::Display for TypeqlValue {
@@ -422,6 +481,7 @@ impl std::fmt::Display for TypeqlValue {
         match self {
             TypeqlValue::String(value) => formatter.write_str(&typeql_string_literal(value)),
             TypeqlValue::Date(value) => formatter.write_str(value),
+            TypeqlValue::Integer(value) => write!(formatter, "{value}"),
         }
     }
 }
@@ -433,9 +493,9 @@ fn typeql_string_literal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::models::domain::{
-        Affiliation, Authoring, Citation, DocumentContent, Literature, LiteratureCore, Paper,
-        PaperGraph, PaperMetadata, PdfExtractionData, Publication, ScientificLiterature,
-        SourceHash,
+        Affiliation, Authoring, Citation, DocumentContent, Funding, Literature, LiteratureCore,
+        Paper, PaperGraph, PaperMetadata, PdfExtractionData, Project, Publication,
+        ScientificLiterature, SourceHash,
     };
     use typedb_driver::Error as TypedbDriverError;
 
@@ -565,7 +625,17 @@ mod tests {
                     }],
                     journal: Some("Journal of Citations".to_owned()),
                 }],
-                fundings: vec![],
+                fundings: vec![Funding {
+                    funder: Institution {
+                        name: Some("National Science Foundation".to_owned()),
+                        kind: InstitutionKind::GovernmentInstitution,
+                        ror_id: Some("https://ror.org/021nxhr62".to_owned()),
+                    },
+                    project: Project {
+                        name: None,
+                        number: Some(1234567),
+                    },
+                }],
             },
             metadata: PaperMetadata::default(),
             content: DocumentContent::default(),
@@ -606,6 +676,25 @@ mod tests {
         assert!(queries.iter().any(|query| {
             query
                 .contains("put $citation isa citation, links (citing: $literature, cited: $cited);")
+        }));
+        assert!(queries.iter().any(|query| {
+            query.contains("isa government-institution, has source")
+                && query.contains("has name \"National Science Foundation\"")
+                && query.contains("has ror-id \"https://ror.org/021nxhr62\"")
+        }));
+        assert!(queries.iter().any(|query| {
+            query.contains("isa project, has source")
+                && query.contains("has project-number 1234567")
+        }));
+        assert!(queries.iter().any(|query| {
+            query.contains(
+                "put $research_activity isa research-activity, links (institution: $institution, project: $project);",
+            )
+        }));
+        assert!(queries.iter().any(|query| {
+            query.contains(
+                "put $project_literature isa project-literature, links (project: $project, literature: $literature);",
+            )
         }));
     }
 }
