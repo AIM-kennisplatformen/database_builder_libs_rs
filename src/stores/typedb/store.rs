@@ -62,7 +62,7 @@ impl TypedbStore<TypedbDisconnected> {
 
             database
         } else {
-            Self::get_or_create_database(&driver, &config.database)
+            Self::get_or_create_database(&driver, &config.database, &config.schema)
                 .await
                 .with_context(|| format!("preparing TypeDB database `{}`", config.database))?
         };
@@ -75,6 +75,7 @@ impl TypedbStore<TypedbDisconnected> {
     async fn get_or_create_database(
         driver: &TypeDBDriver,
         database: &str,
+        schema: &str,
     ) -> Result<Arc<Database>> {
         let databases = driver.databases();
 
@@ -98,14 +99,31 @@ impl TypedbStore<TypedbDisconnected> {
                 .with_context(|| format!("creating TypeDB database `{database}`"))?;
         }
 
-        databases
+        let created_database = databases
             .get(database)
             .await
             .map_err(|source| TypedbStoreError::OpenDatabase {
                 database: database.to_owned(),
                 source: Box::new(source),
             })
-            .with_context(|| format!("opening TypeDB database `{database}`"))
+            .with_context(|| format!("opening TypeDB database `{database}`"))?;
+
+        // Only a brand-new database needs its schema defined: applying the
+        // same `define` schema again on every connect against an existing
+        // database is unnecessary and would fail once it already owns those
+        // types.
+        if !exists {
+            Self::ensure_schema(driver, created_database.name(), schema)
+                .await
+                .with_context(|| {
+                    format!(
+                        "ensuring TypeDB schema is applied to database `{}`",
+                        created_database.name()
+                    )
+                })?;
+        }
+
+        Ok(created_database)
     }
 
     async fn recreate_database(driver: &TypeDBDriver, database: &str) -> Result<Arc<Database>> {
