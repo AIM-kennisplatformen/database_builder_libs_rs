@@ -12,6 +12,10 @@ pub struct RorSource {
 pub struct RorMatch {
     pub ror_id: String,
     pub name: String,
+    /// ROR's own organization types (e.g. `"education"`, `"government"`,
+    /// `"company"`), used as a coarse signal for classifying the matched
+    /// institution's kind.
+    pub types: Vec<String>,
 }
 
 impl RorSource {
@@ -70,6 +74,7 @@ fn chosen_match(response: RorAffiliationResponse) -> Option<RorMatch> {
                 .map(|name| name.value)
                 .next()
                 .unwrap_or_default(),
+            types: item.organization.types,
         })
 }
 
@@ -88,6 +93,8 @@ struct RorAffiliationItem {
 struct RorOrganization {
     id: String,
     names: Vec<RorName>,
+    #[serde(default)]
+    types: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -102,8 +109,8 @@ mod tests {
     #[test]
     fn picks_the_chosen_item_out_of_several_candidates() {
         let body = r#"{"items":[
-            {"chosen":false,"organization":{"id":"https://ror.org/00000aaaa","names":[{"value":"Not This One"}]}},
-            {"chosen":true,"organization":{"id":"https://ror.org/00b30xv10","names":[{"value":"Fontys University of Applied Sciences"}]}}
+            {"chosen":false,"organization":{"id":"https://ror.org/00000aaaa","names":[{"value":"Not This One"}],"types":["company"]}},
+            {"chosen":true,"organization":{"id":"https://ror.org/00b30xv10","names":[{"value":"Fontys University of Applied Sciences"}],"types":["education"]}}
         ]}"#;
         let response: RorAffiliationResponse =
             serde_json::from_slice(body.as_bytes()).expect("well-formed response deserializes");
@@ -112,6 +119,20 @@ mod tests {
 
         assert_eq!(matched.ror_id, "https://ror.org/00b30xv10");
         assert_eq!(matched.name, "Fontys University of Applied Sciences");
+        assert_eq!(matched.types, vec!["education".to_owned()]);
+    }
+
+    #[test]
+    fn defaults_to_an_empty_types_list_when_the_field_is_missing() {
+        let body = r#"{"items":[
+            {"chosen":true,"organization":{"id":"https://ror.org/00b30xv10","names":[{"value":"Some Org"}]}}
+        ]}"#;
+        let response: RorAffiliationResponse =
+            serde_json::from_slice(body.as_bytes()).expect("well-formed response deserializes");
+
+        let matched = chosen_match(response).expect("one item is chosen");
+
+        assert_eq!(matched.types, Vec::<String>::new());
     }
 
     #[test]

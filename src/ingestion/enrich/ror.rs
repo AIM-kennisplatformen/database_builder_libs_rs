@@ -1,70 +1,67 @@
 use std::collections::HashMap;
 
 use crate::{
-    ingestion::extract::ror::source::RorSource,
+    ingestion::{
+        enrich::institution_kind::classify_institution_kind,
+        extract::ror::source::{RorMatch, RorSource},
+    },
     models::domain::{Institution, Paper},
 };
 
-/// Resolves each institution's ROR (Research Organization Registry) id by
-/// name. This only tags institutions with a ror-id; deduplicating entities
-/// that turn out to share one (typos, naming variants of the same
-/// organization) is a separate, later step over already-exported data, not
-/// something this pass does.
+/// Resolves each institution's ROR (Research Organization Registry) id and
+/// kind (university, government, etc.) by name. This only tags institutions;
+/// deduplicating entities that turn out to share a ror-id (typos, naming
+/// variants of the same organization) is a separate, later step over
+/// already-exported data, not something this pass does.
 ///
 /// Lookups are cached per paper so repeated affiliations to the same
 /// institution within one paper only hit the ROR API once. A failed or
 /// missing lookup is treated the same as "no match": it must never fail the
 /// whole paper's export over a flaky external API or an institution ROR
-/// simply doesn't know about.
-pub async fn resolve_institution_ror_ids(paper: &mut Paper, ror: &RorSource) {
-    let mut cache: HashMap<String, Option<String>> = HashMap::new();
+/// simply doesn't know about, and the institution's kind still gets
+/// classified from its name alone in that case.
+pub async fn enrich_institutions(paper: &mut Paper, ror: &RorSource) {
+    let mut cache: HashMap<String, Option<RorMatch>> = HashMap::new();
 
     for authoring in &mut paper.graph.authorings {
         for affiliation in &mut authoring.affiliations {
-            resolve(&mut affiliation.institution, ror, &mut cache).await;
+            enrich(&mut affiliation.institution, ror, &mut cache).await;
         }
     }
 
     for publication in &mut paper.graph.publications {
-        resolve(&mut publication.publisher, ror, &mut cache).await;
+        enrich(&mut publication.publisher, ror, &mut cache).await;
     }
 
     for citation in &mut paper.graph.citations {
         for authoring in &mut citation.authorings {
             for affiliation in &mut authoring.affiliations {
-                resolve(&mut affiliation.institution, ror, &mut cache).await;
+                enrich(&mut affiliation.institution, ror, &mut cache).await;
             }
         }
     }
 }
 
-async fn resolve(
+async fn enrich(
     institution: &mut Institution,
     ror: &RorSource,
-    cache: &mut HashMap<String, Option<String>>,
+    cache: &mut HashMap<String, Option<RorMatch>>,
 ) {
-    let Some(name) = institution
-        .name
-        .as_deref()
-        .filter(|name| !name.is_empty())
-    else {
+    let Some(name) = institution.name.clone().filter(|name| !name.is_empty()) else {
         return;
     };
 
-    if let Some(cached) = cache.get(name) {
-        institution.ror_id = cached.clone();
-        return;
-    }
+    let matched = if let Some(cached) = cache.get(&name) {
+        cached.clone()
+    } else {
+        let matched = ror.match_organization(&name).await.ok().flatten();
+        cache.insert(name.clone(), matched.clone());
+        matched
+    };
 
-    let ror_id = ror
-        .match_organization(name)
-        .await
-        .ok()
-        .flatten()
-        .map(|matched| matched.ror_id);
-
-    cache.insert(name.to_owned(), ror_id.clone());
-    institution.ror_id = ror_id;
+    let ror_types = matched.as_ref().map_or(&[][..], |matched| &matched.types);
+    institution.kind = classify_institution_kind(&name, ror_types);
+    institution.ror_id = matched.map(|matched| matched.ror_id);
 }
 
 #[cfg(test)]
@@ -124,11 +121,24 @@ mod tests {
         let mut paper = paper_with_institutions(vec!["Some University"]);
         let ror = RorSource::new(RorConfig::new("http://localhost:0"));
 
-        resolve_institution_ror_ids(&mut paper, &ror).await;
+        enrich_institutions(&mut paper, &ror).await;
 
         assert_eq!(
             paper.graph.authorings[0].affiliations[0].institution.ror_id,
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn classifies_kind_from_name_even_when_the_endpoint_is_unreachable() {
+        let mut paper = paper_with_institutions(vec!["Some University"]);
+        let ror = RorSource::new(RorConfig::new("http://localhost:0"));
+
+        enrich_institutions(&mut paper, &ror).await;
+
+        assert_eq!(
+            paper.graph.authorings[0].affiliations[0].institution.kind,
+            InstitutionKind::University
         );
     }
 
@@ -151,11 +161,15 @@ mod tests {
         });
         let ror = RorSource::new(RorConfig::new("http://localhost:0"));
 
-        resolve_institution_ror_ids(&mut paper, &ror).await;
+        enrich_institutions(&mut paper, &ror).await;
 
         assert_eq!(
             paper.graph.authorings[0].affiliations[0].institution.ror_id,
             None
+        );
+        assert_eq!(
+            paper.graph.authorings[0].affiliations[0].institution.kind,
+            InstitutionKind::Institution
         );
     }
 
@@ -171,7 +185,7 @@ mod tests {
         });
         let ror = RorSource::new(RorConfig::new("http://localhost:0"));
 
-        resolve_institution_ror_ids(&mut paper, &ror).await;
+        enrich_institutions(&mut paper, &ror).await;
 
         assert_eq!(paper.graph.publications[0].publisher.ror_id, None);
     }

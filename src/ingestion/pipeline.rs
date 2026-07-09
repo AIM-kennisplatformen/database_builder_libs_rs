@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     ingestion::{
-        enrich::ror::resolve_institution_ror_ids,
+        enrich::ror::enrich_institutions,
         error::PipelineError,
         export::{
             json::{json_path_for_tei_xml, write_paper_json},
@@ -121,8 +121,8 @@ where
     let mut paper = paper_from_tei(&tei_document, source);
     report("Transformed tei document to domain paper");
 
-    resolve_institution_ror_ids(&mut paper, ror_source).await;
-    report("Resolved institution ROR ids");
+    enrich_institutions(&mut paper, ror_source).await;
+    report("Enriched institutions with ROR ids and kinds");
 
     let json_path = json_path_for_tei_xml(&tei_xml_path, json_dir);
     if let Err(error) = write_paper_json(&paper, &json_path)
