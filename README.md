@@ -123,24 +123,13 @@ cargo run --bin server
   -- the only endpoint that writes to disk. Creates the record on its first
   call for a given hash, overwrites it on every call after.
 
-upload_interface's frontend calls these routes directly (no server-side
-proxy), so they accept either caller: an authenticated browser session, or
-a machine client's `Authorization: Bearer <key>` checked against
-`METADATA_API_KEYS`. The browser session comes from an Authentik OIDC login
-flow mirroring studio's own dual-auth setup:
-
-- `GET /auth/login` redirects to Authentik; `GET /auth/callback` exchanges
-  the code, verifies the ID token, and sets a signed session cookie, then
-  redirects to `FRONTEND_URL`; `GET /auth/logout` clears the cookie and
-  redirects to `OAUTH_LOGOUT_URL`; `GET /me` returns the current session
-  user (401 if not logged in).
-- Requires its own Authentik application/client registration (separate from
-  studio's) with `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`/
-  `OAUTH_DISCOVERY_URL`/`OAUTH_LOGOUT_URL`, plus `SESSION_SECRET` (signs the
-  session cookie), `METADATA_SERVER_BASE_URL` (this server's own reachable
-  URL, used to build the OAuth `redirect_uri`), and `FRONTEND_URL`
-  (upload_interface's origin -- the CORS-allowed origin and the post-login
-  redirect target).
+All three routes require `Authorization: Bearer <key>`, checked against
+`METADATA_API_KEYS` (the same `"app-name:key,other-app:key"` pattern used
+elsewhere). Real user authentication (Authentik login) happens at the edge
+in front of this server -- e.g. a Caddy reverse proxy with a
+forward-auth/outpost integration -- not in this process itself; this
+server only needs to trust the machine caller (the reverse proxy) that
+reaches it directly.
 
 This server never writes to TypeDB or Qdrant -- it only produces metadata
 for a form to autocomplete from. Ingestion into TypeDB/Qdrant still only
