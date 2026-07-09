@@ -22,6 +22,7 @@ use crate::{
     },
     stores::{
         qdrant::store::{QdrantConnected, QdrantStore},
+        studio::store::StudioStore,
         typedb::store::{TypedbConnected, TypedbStore},
     },
 };
@@ -35,6 +36,8 @@ pub struct PipelineSources<'a> {
 pub struct PipelineStores<'a> {
     pub typedb_store: &'a TypedbStore<TypedbConnected>,
     pub qdrant_store: &'a QdrantStore<QdrantConnected>,
+    /// Optional: only set when Studio PDF storage is enabled via config.
+    pub studio_store: Option<&'a StudioStore>,
 }
 
 pub async fn run_with_reporter<F>(
@@ -56,6 +59,7 @@ where
     let PipelineStores {
         typedb_store,
         qdrant_store,
+        studio_store,
     } = stores;
 
     let file_stem = pdf_path
@@ -82,6 +86,21 @@ where
     };
     let source = SourceHash::from_bytes(&pdf_bytes);
     report("Calculated PDF source hash");
+
+    if let Some(studio_store) = studio_store {
+        // Best-effort: Studio being unreachable shouldn't block the rest of
+        // this paper's ingestion, so a failure is logged and swallowed
+        // rather than propagated like the other exporters below.
+        match studio_store
+            .upload_pdf(source.as_str(), pdf_bytes.clone())
+            .await
+        {
+            Ok(()) => report("Stored PDF in Studio"),
+            Err(error) => report(&format!(
+                "Failed to store PDF in Studio (continuing): {error}"
+            )),
+        }
+    }
 
     let tei_xml = match grobid
         .extract_pdf_bytes_to_tei_xml(&pdf_path, pdf_bytes)

@@ -25,6 +25,7 @@ use database_builder_scepa_rs::{
             config::QdrantConfig,
             store::{QdrantConnected, QdrantStore},
         },
+        studio::{config::StudioConfig, store::StudioStore},
         typedb::{
             DOMAIN_SCHEMA,
             config::TypedbConfig,
@@ -98,6 +99,20 @@ struct Env {
     )]
     qdrant_wipe_collection: bool,
 
+    #[arg(
+        long,
+        env = "STUDIO_PDF_STORE_ENABLED",
+        default_value_t = false,
+        action = clap::ArgAction::Set
+    )]
+    studio_pdf_store_enabled: bool,
+
+    #[arg(long, env = "STUDIO_BASE_URL", default_value = "")]
+    studio_base_url: String,
+
+    #[arg(long, env = "STUDIO_API_KEY", default_value = "")]
+    studio_api_key: String,
+
     #[arg(long, env = "OPENAI_HOST")]
     openai_host: String,
 
@@ -124,6 +139,7 @@ struct RunConfig {
     ror_source: Arc<RorSource>,
     embedding_source: Arc<EmbeddingSource>,
     qdrant_store: Arc<QdrantStore<QdrantConnected>>,
+    studio_store: Option<Arc<StudioStore>>,
     parallelism: usize,
 }
 
@@ -201,6 +217,18 @@ async fn run(env: Env) -> Result<ExitCode> {
             .context("connecting to Qdrant for chunk export")?,
     );
 
+    let studio_store = if env.studio_pdf_store_enabled {
+        if env.studio_base_url.is_empty() || env.studio_api_key.is_empty() {
+            bail!("STUDIO_PDF_STORE_ENABLED=true requires both STUDIO_BASE_URL and STUDIO_API_KEY");
+        }
+        Some(Arc::new(StudioStore::new(StudioConfig::new(
+            env.studio_base_url,
+            env.studio_api_key,
+        ))))
+    } else {
+        None
+    };
+
     let config = RunConfig {
         pdf_source: env.pdf_source,
         tei_xml_dir: Arc::new(env.tei_xml_dir),
@@ -210,6 +238,7 @@ async fn run(env: Env) -> Result<ExitCode> {
         ror_source,
         embedding_source,
         qdrant_store,
+        studio_store,
         parallelism: env.parallelism.get(),
     };
 
@@ -270,6 +299,7 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
             let ror_source = config.ror_source.clone();
             let embedding_source = config.embedding_source.clone();
             let qdrant_store = config.qdrant_store.clone();
+            let studio_store = config.studio_store.clone();
 
             tasks.spawn(async move {
                 let document_path = pdf_path.as_path().to_path_buf();
@@ -286,6 +316,7 @@ async fn process_pdf_source(config: RunConfig) -> Result<usize> {
                     PipelineStores {
                         typedb_store: typedb_store.as_ref(),
                         qdrant_store: qdrant_store.as_ref(),
+                        studio_store: studio_store.as_deref(),
                     },
                     |_| {},
                 )

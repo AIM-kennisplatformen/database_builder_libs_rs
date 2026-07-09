@@ -47,7 +47,9 @@ Each document writes the raw TEI XML first, then produces a normalized JSON repr
 - `src/ingestion/export`: output sinks
   - JSON, TEI XML, TypeDB, and Qdrant are all wired today.
 - `src/models`: TEI, path, and domain models.
-- `src/stores`: database adapters with typed connected/disconnected states.
+- `src/stores`: database/service adapters with typed connected/disconnected
+  states (Studio's PDF store is the exception: a stateless HTTP client with
+  nothing to connect, so it's just constructed synchronously).
 
 ## Local Services
 
@@ -87,6 +89,13 @@ Set `QDRANT_WIPE_COLLECTION=true` to delete and recreate the configured Qdrant
 collection before ingestion.
 Each payload carries `source`, `kind` (`abstract` or `section`), `section_index`,
 `section_title`, `chunk_index`, and `text`.
+
+Set `STUDIO_PDF_STORE_ENABLED=true` (plus `STUDIO_BASE_URL`/`STUDIO_API_KEY`) to
+also push each paper's own PDF to a running Studio instance's
+`/api/pdf/{sha256}` store, keyed by the same source hash used everywhere else
+in this pipeline, so Studio can serve the original PDF for citations. This is
+best-effort: Studio being unreachable is logged and does not fail the rest of
+the paper's ingestion.
 
 ```sh
 docker compose up -d
