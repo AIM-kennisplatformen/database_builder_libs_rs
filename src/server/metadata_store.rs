@@ -4,10 +4,11 @@ use anyhow::{Context, Result};
 
 use crate::ingestion::metadata::UploadInterfaceMetadata;
 
-/// Disk-backed, content-addressed store for extracted upload_interface
+/// Disk-backed, content-addressed store for *saved* upload_interface
 /// Field-schema metadata, keyed by the same sha256 source hash used
-/// throughout the rest of this pipeline. Lets a previously-extracted
-/// result be re-fetched (GET) without re-running GROBID.
+/// throughout the rest of this pipeline. Only ever written by a save
+/// (PATCH) -- extraction (PUT) is transient and never touches this store,
+/// so nothing lands here before a user has actually chosen to keep it.
 #[derive(Clone, Debug)]
 pub struct MetadataStore {
     directory: PathBuf,
