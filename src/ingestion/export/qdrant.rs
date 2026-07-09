@@ -162,6 +162,7 @@ mod tests {
                 authorings: vec![],
                 publications: vec![],
                 citations: vec![],
+                fundings: vec![],
             },
             metadata: PaperMetadata {
                 abstract_text: abstract_text.map(str::to_owned),

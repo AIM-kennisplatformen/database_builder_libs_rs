@@ -33,6 +33,10 @@ pub async fn enrich_institutions(paper: &mut Paper, ror: &RorSource) {
         enrich(&mut publication.publisher, ror, &mut cache).await;
     }
 
+    for funding in &mut paper.graph.fundings {
+        enrich(&mut funding.funder, ror, &mut cache).await;
+    }
+
     for citation in &mut paper.graph.citations {
         for authoring in &mut citation.authorings {
             for affiliation in &mut authoring.affiliations {
@@ -109,6 +113,7 @@ mod tests {
                     .collect(),
                 publications: Vec::new(),
                 citations: Vec::new(),
+                fundings: Vec::new(),
             },
             metadata: PaperMetadata::default(),
             content: DocumentContent::default(),

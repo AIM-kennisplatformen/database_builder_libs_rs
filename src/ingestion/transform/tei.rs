@@ -1,5 +1,6 @@
 mod authors;
 mod content;
+mod funding;
 mod metadata;
 mod paper;
 mod publication;

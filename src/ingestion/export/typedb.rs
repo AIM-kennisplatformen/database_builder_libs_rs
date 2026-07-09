@@ -565,6 +565,7 @@ mod tests {
                     }],
                     journal: Some("Journal of Citations".to_owned()),
                 }],
+                fundings: vec![],
             },
             metadata: PaperMetadata::default(),
             content: DocumentContent::default(),

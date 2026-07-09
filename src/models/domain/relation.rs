@@ -4,6 +4,7 @@ use super::{
     author::Author,
     institution::{Department, Institution},
     literature::Literature,
+    project::Project,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -29,4 +30,10 @@ pub struct Citation {
     pub cited: Literature,
     pub authorings: Vec<Authoring>,
     pub journal: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Funding {
+    pub funder: Institution,
+    pub project: Project,
 }

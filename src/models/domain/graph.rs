@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use super::{
     literature::Literature,
-    relation::{Authoring, Citation, Publication},
+    relation::{Authoring, Citation, Funding, Publication},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -11,4 +11,5 @@ pub struct PaperGraph {
     pub authorings: Vec<Authoring>,
     pub publications: Vec<Publication>,
     pub citations: Vec<Citation>,
+    pub fundings: Vec<Funding>,
 }

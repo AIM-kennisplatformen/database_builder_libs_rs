@@ -1,8 +1,8 @@
 use crate::models::{
     domain::{
-        Affiliation, Authoring, Citation, Department, Institution, InstitutionKind, Literature,
-        LiteratureCore, Paper, PaperGraph, PdfExtractionData, Publication, PublicationDetails,
-        ScientificLiterature, SourceHash,
+        Affiliation, Authoring, Citation, Department, Funding, Institution, InstitutionKind,
+        Literature, LiteratureCore, Paper, PaperGraph, PdfExtractionData, Publication,
+        PublicationDetails, ScientificLiterature, SourceHash,
     },
     tei::{bibliography::BiblStruct, document::TeiDocument},
 };
@@ -10,6 +10,7 @@ use crate::models::{
 use super::{
     authors::{ExtractedAffiliation, ExtractedAuthor, authors_from_tei},
     content::{citations_from_tei, document_content_from_tei},
+    funding::fundings_from_tei,
     metadata::{literature_title_from_tei, paper_metadata_from_tei},
     publication::publication_details_from_tei,
 };
@@ -26,8 +27,9 @@ pub fn paper_from_tei(document: &TeiDocument, source: SourceHash) -> Paper {
     let authors = authors_from_tei(document, source_bibl);
     let title = literature_title_from_tei(document, source_bibl);
     let citations = citations_from_tei(document);
+    let fundings = fundings_from_tei(document);
     let content = document_content_from_tei(document);
-    let graph = paper_graph_from_parts(title, &publication, authors, citations);
+    let graph = paper_graph_from_parts(title, &publication, authors, citations, fundings);
 
     Paper {
         source,
@@ -52,6 +54,7 @@ fn paper_graph_from_parts(
     publication: &PublicationDetails,
     extracted_authors: Vec<ExtractedAuthor>,
     citations: Vec<Citation>,
+    fundings: Vec<Funding>,
 ) -> PaperGraph {
     let literature = Literature::Scientific(ScientificLiterature {
         core: LiteratureCore {
@@ -86,6 +89,7 @@ fn paper_graph_from_parts(
         authorings,
         publications,
         citations,
+        fundings,
     }
 }
 
