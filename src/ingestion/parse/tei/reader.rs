@@ -1,14 +1,17 @@
 use crate::ingestion::parse::tei::error::ParseError;
 use crate::models::paths::tei_xml::TeiXmlPath;
 use crate::models::tei::TeiDocument;
-use std::fs::File;
-use std::io::BufReader;
+use std::fs;
 
 pub fn parse_tei_xml_path(path: &TeiXmlPath) -> Result<TeiDocument, ParseError> {
-    let file = File::open(path.as_path())?;
-    let reader = BufReader::new(file);
+    let xml = fs::read_to_string(path.as_path())?;
 
-    let document = quick_xml::de::from_reader(reader)?;
+    parse_tei_xml_str(&xml)
+}
 
-    Ok(document)
+/// Parses an in-memory TEI XML string directly, without a round trip
+/// through disk -- used by the metadata server, which only ever has GROBID's
+/// output in memory for an ephemeral, not-yet-stored upload.
+pub fn parse_tei_xml_str(xml: &str) -> Result<TeiDocument, ParseError> {
+    Ok(quick_xml::de::from_str(xml)?)
 }
