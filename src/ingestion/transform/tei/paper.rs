@@ -70,6 +70,7 @@ fn paper_graph_from_parts(
             publisher: Institution {
                 name: Some(publisher.to_owned()),
                 kind: InstitutionKind::Institution,
+                ror_id: None,
             },
         })
         .into_iter()
@@ -107,6 +108,7 @@ fn affiliation_from_extracted_affiliation(extracted: ExtractedAffiliation) -> Op
         institution: Institution {
             name: Some(institution_name),
             kind: InstitutionKind::Institution,
+            ror_id: None,
         },
         department: department_name.map(|name| Department { name: Some(name) }),
     })

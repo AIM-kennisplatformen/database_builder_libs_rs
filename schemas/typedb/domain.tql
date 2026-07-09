@@ -10,6 +10,7 @@ attribute doi, value string;
 attribute forename, value string;
 attribute surname, value string;
 attribute name, value string;
+attribute ror-id, value string;
 attribute project-name, value string;
 attribute project-number, value integer;
 
@@ -45,6 +46,7 @@ entity book-chapter sub literature;
 entity institution,
   owns source @card(1..),
   owns name @card(0..1),
+  owns ror-id @card(0..1),
   plays institutional-structure:institution @card(0..),
   plays affiliation:institution @card(0..),
   plays publication:publisher @card(0..),

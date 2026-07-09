@@ -282,6 +282,7 @@ fn author_ref(source: &str, author: &Author, variable: &'static str) -> EntityRe
 fn institution_ref(source: &str, institution: &Institution, variable: &'static str) -> EntityRef {
     let mut attributes = sourced_attributes(source);
     push_optional_string_attribute(&mut attributes, "name", institution.name.as_deref());
+    push_optional_string_attribute(&mut attributes, "ror-id", institution.ror_id.as_deref());
 
     EntityRef {
         variable,
@@ -526,6 +527,7 @@ mod tests {
                         institution: Institution {
                             name: Some("Analytical Engines Lab".to_owned()),
                             kind: InstitutionKind::University,
+                            ror_id: Some("https://ror.org/00b30xv10".to_owned()),
                         },
                         department: Some(Department {
                             name: Some("Computing".to_owned()),
@@ -536,6 +538,7 @@ mod tests {
                     publisher: Institution {
                         name: Some("Knowledge Press".to_owned()),
                         kind: InstitutionKind::Institution,
+                        ror_id: None,
                     },
                 }],
                 citations: vec![Citation {
@@ -582,6 +585,11 @@ mod tests {
             query.contains(
                 "put $authoring isa authoring, links (literature: $literature, author: $author);",
             )
+        }));
+        assert!(queries.iter().any(|query| {
+            query.contains("isa university, has source")
+                && query.contains("has name \"Analytical Engines Lab\"")
+                && query.contains("has ror-id \"https://ror.org/00b30xv10\"")
         }));
         assert!(queries.iter().any(|query| {
             query.contains("put $institutional_structure isa institutional-structure, links (department: $department, institution: $institution);")
