@@ -15,6 +15,23 @@ pub struct EmbeddingSource {
     pub client: reqwest::Client,
 }
 
+#[derive(Serialize)]
+struct EmbeddingsRequest<'a> {
+    model: &'a str,
+    input: &'a [String],
+}
+
+#[derive(Deserialize)]
+struct EmbeddingsResponse {
+    data: Vec<EmbeddingData>,
+}
+
+#[derive(Deserialize)]
+struct EmbeddingData {
+    embedding: Vec<f32>,
+    index: usize,
+}
+
 impl EmbeddingSource {
     pub fn new(config: EmbeddingConfig) -> Self {
         Self {
@@ -70,17 +87,19 @@ impl EmbeddingSource {
 
         let status = response.status();
 
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            let header_retry_after = retry_after_header(&response);
-            let body = response.text().await.unwrap_or_default();
-            let retry_after = header_retry_after.or_else(|| retry_after_from_body(&body));
+        match status {
+            StatusCode::TOO_MANY_REQUESTS => {
+                let retry_after = retry_after_header(&response);
+                let body = response.text().await.unwrap_or_default();
+                let retry_after = retry_after.or_else(|| retry_after_from_body(&body));
 
-            return Err(EmbeddingError::RateLimited { body, retry_after });
-        }
-
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(EmbeddingError::UnsuccessfulResponse { status, body });
+                return Err(EmbeddingError::RateLimited { body, retry_after });
+            }
+            _ if !status.is_success() => {
+                let body = response.text().await.unwrap_or_default();
+                return Err(EmbeddingError::UnsuccessfulResponse { status, body });
+            }
+            _ => {}
         }
 
         let bytes = response.bytes().await?;
@@ -135,23 +154,6 @@ fn retry_after_from_body(body: &str) -> Option<Duration> {
         .parse::<u64>()
         .ok()
         .map(Duration::from_secs)
-}
-
-#[derive(Serialize)]
-struct EmbeddingsRequest<'a> {
-    model: &'a str,
-    input: &'a [String],
-}
-
-#[derive(Deserialize)]
-struct EmbeddingsResponse {
-    data: Vec<EmbeddingData>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingData {
-    embedding: Vec<f32>,
-    index: usize,
 }
 
 #[cfg(test)]
