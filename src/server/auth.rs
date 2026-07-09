@@ -5,6 +5,9 @@ use axum::{
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::cookie::{Key, SignedCookieJar};
+
+use crate::server::session::{SESSION_COOKIE, SessionUser};
 
 /// "app-name:key,other-app:key" pairs authorizing machine clients (e.g.
 /// upload_interface) to call this server's endpoints.
@@ -50,6 +53,7 @@ pub struct AuthorizedApp(pub String);
 pub enum AuthError {
     Missing,
     Invalid,
+    Unauthenticated,
 }
 
 impl IntoResponse for AuthError {
@@ -57,6 +61,7 @@ impl IntoResponse for AuthError {
         let message = match self {
             AuthError::Missing => "missing or malformed Authorization header",
             AuthError::Invalid => "invalid API key",
+            AuthError::Unauthenticated => "authentication required (log in or provide an API key)",
         };
 
         (StatusCode::UNAUTHORIZED, message).into_response()
@@ -84,6 +89,55 @@ where
         keys.verify(presented)
             .map(|name| AuthorizedApp(name.to_owned()))
             .ok_or(AuthError::Invalid)
+    }
+}
+
+/// Extractor authenticating a request via either an authenticated browser
+/// session (a signed cookie set by `/auth/callback`) or a machine client's
+/// bearer API key -- mirrors studio's `get_current_user_or_api_key`. The
+/// browser calls this server's metadata routes directly now (no server-side
+/// proxy), so those routes need to accept a logged-in user, not just a
+/// bearer key baked into frontend JS.
+pub enum AuthorizedCaller {
+    Session(SessionUser),
+    ApiKey(String),
+}
+
+impl<S> FromRequestParts<S> for AuthorizedCaller
+where
+    S: Send + Sync,
+    ApiKeys: FromRef<S>,
+    Key: FromRef<S>,
+{
+    type Rejection = AuthError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let jar: SignedCookieJar<Key> = SignedCookieJar::from_request_parts(parts, state)
+            .await
+            .expect("SignedCookieJar extraction is infallible");
+
+        if let Some(user) = jar
+            .get(SESSION_COOKIE)
+            .and_then(|cookie| SessionUser::from_cookie(&cookie))
+        {
+            return Ok(AuthorizedCaller::Session(user));
+        }
+
+        let keys = ApiKeys::from_ref(state);
+
+        let header = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AuthError::Unauthenticated)?;
+
+        let presented = header
+            .strip_prefix("Bearer ")
+            .ok_or(AuthError::Unauthenticated)?;
+
+        keys.verify(presented)
+            .map(|name| AuthorizedCaller::ApiKey(name.to_owned()))
+            .ok_or(AuthError::Unauthenticated)
     }
 }
 
