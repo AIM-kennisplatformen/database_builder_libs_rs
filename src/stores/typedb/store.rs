@@ -46,26 +46,15 @@ impl TypedbStore<TypedbDisconnected> {
             })
             .with_context(|| format!("connecting to TypeDB at `{}`", config.address))?;
 
-        let database = if config.wipe_database {
-            let database = Self::recreate_database(&driver, &config.database)
+        if config.wipe_database {
+            Self::delete_database(&driver, &config.database)
                 .await
-                .with_context(|| format!("recreating TypeDB database `{}`", config.database))?;
+                .with_context(|| format!("deleting TypeDB database `{}`", config.database))?;
+        }
 
-            Self::ensure_schema(&driver, database.name(), &config.schema)
-                .await
-                .with_context(|| {
-                    format!(
-                        "ensuring TypeDB schema is applied to database `{}`",
-                        database.name()
-                    )
-                })?;
-
-            database
-        } else {
-            Self::get_or_create_database(&driver, &config.database, &config.schema)
-                .await
-                .with_context(|| format!("preparing TypeDB database `{}`", config.database))?
-        };
+        let database = Self::get_or_create_database(&driver, &config.database, &config.schema)
+            .await
+            .with_context(|| format!("preparing TypeDB database `{}`", config.database))?;
 
         Ok(TypedbStore {
             state: TypedbConnected { driver, database },
@@ -126,7 +115,7 @@ impl TypedbStore<TypedbDisconnected> {
         Ok(created_database)
     }
 
-    async fn recreate_database(driver: &TypeDBDriver, database: &str) -> Result<Arc<Database>> {
+    async fn delete_database(driver: &TypeDBDriver, database: &str) -> Result<()> {
         let databases = driver.databases();
 
         let exists = databases
@@ -138,43 +127,29 @@ impl TypedbStore<TypedbDisconnected> {
             })
             .with_context(|| format!("checking whether TypeDB database `{database}` exists"))?;
 
-        if exists {
-            let existing_database = databases
-                .get(database)
-                .await
-                .map_err(|source| TypedbStoreError::OpenDatabase {
-                    database: database.to_owned(),
-                    source: Box::new(source),
-                })
-                .with_context(|| format!("opening TypeDB database `{database}` before deletion"))?;
-
-            existing_database
-                .delete()
-                .await
-                .map_err(|source| TypedbStoreError::DeleteDatabase {
-                    database: database.to_owned(),
-                    source: Box::new(source),
-                })
-                .with_context(|| format!("deleting TypeDB database `{database}`"))?;
+        if !exists {
+            return Ok(());
         }
 
-        databases
-            .create(database)
-            .await
-            .map_err(|source| TypedbStoreError::CreateDatabase {
-                database: database.to_owned(),
-                source: Box::new(source),
-            })
-            .with_context(|| format!("creating TypeDB database `{database}`"))?;
-
-        databases
+        let existing_database = databases
             .get(database)
             .await
             .map_err(|source| TypedbStoreError::OpenDatabase {
                 database: database.to_owned(),
                 source: Box::new(source),
             })
-            .with_context(|| format!("opening TypeDB database `{database}`"))
+            .with_context(|| format!("opening TypeDB database `{database}` before deletion"))?;
+
+        existing_database
+            .delete()
+            .await
+            .map_err(|source| TypedbStoreError::DeleteDatabase {
+                database: database.to_owned(),
+                source: Box::new(source),
+            })
+            .with_context(|| format!("deleting TypeDB database `{database}`"))?;
+
+        Ok(())
     }
 
     async fn ensure_schema(driver: &TypeDBDriver, database: &str, schema: &str) -> Result<()> {
