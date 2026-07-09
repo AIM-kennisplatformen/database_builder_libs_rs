@@ -123,7 +123,9 @@ fn retry_after_from_body(body: &str) -> Option<Duration> {
 
     let start = body.find(MARKER)? + MARKER.len();
     let rest = &body[start..];
-    let digits_end = rest.find(|character: char| !character.is_ascii_digit())?;
+    let digits_end = rest
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(rest.len());
 
     if digits_end == 0 {
         return None;

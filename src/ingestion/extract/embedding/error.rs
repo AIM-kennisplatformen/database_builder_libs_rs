@@ -8,10 +8,10 @@ pub enum EmbeddingError {
     #[error("failed to call the embedding endpoint")]
     Request(#[from] reqwest::Error),
 
-    #[error("embedding endpoint rejected the request: {body}")]
+    #[error("embedding endpoint rejected the request ({status}): {body}")]
     UnsuccessfulResponse { status: StatusCode, body: String },
 
-    #[error("embedding endpoint is rate limiting requests: {body}")]
+    #[error("embedding endpoint is rate limiting requests (retry_after={retry_after:?}): {body}")]
     RateLimited {
         body: String,
         retry_after: Option<Duration>,
