@@ -34,11 +34,11 @@ impl TypedbStore<TypedbDisconnected> {
     }
 
     async fn connect_inner(self, config: &TypedbConfig) -> Result<TypedbStore<TypedbConnected>> {
-        let addresses = config
-            .addresses()
-            .with_context(|| format!("parsing TypeDB address `{}`", config.address))?;
+        let driver_options = config
+            .driver_options()
+            .context("building TypeDB driver options")?;
 
-        let driver = TypeDBDriver::new(addresses, config.credentials(), config.driver_options())
+        let driver = TypeDBDriver::new(&config.address, config.credentials(), driver_options)
             .await
             .map_err(|source| TypedbStoreError::Connect {
                 address: config.address.clone(),

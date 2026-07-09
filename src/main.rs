@@ -121,6 +121,10 @@ struct RunConfig {
 }
 
 fn main() -> ExitCode {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("installing default rustls CryptoProvider");
+
     match run_cli() {
         Ok(exit_code) => exit_code,
         Err(error) => {

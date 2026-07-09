@@ -1,4 +1,4 @@
-use typedb_driver::{Addresses, Credentials, DriverOptions, DriverTlsConfig};
+use typedb_driver::{Credentials, DriverOptions};
 
 use crate::stores::typedb::error::TypedbStoreError;
 
@@ -34,27 +34,15 @@ impl TypedbConfig {
         }
     }
 
-    pub fn addresses(&self) -> Result<Addresses, TypedbStoreError> {
-        match Addresses::try_from_address_str(&self.address) {
-            Ok(addresses) => Ok(addresses),
-            Err(source) => Err(TypedbStoreError::InvalidAddress {
-                address: self.address.clone(),
-                source: Box::new(source),
-            }),
-        }
-    }
-
     pub fn credentials(&self) -> Credentials {
         Credentials::new(&self.username, &self.password)
     }
 
-    pub fn driver_options(&self) -> DriverOptions {
-        let tls_config = if self.tls {
-            DriverTlsConfig::default()
-        } else {
-            DriverTlsConfig::disabled()
-        };
-
-        DriverOptions::new(tls_config)
+    /// No CA path is configurable here, so TLS (when enabled) always uses
+    /// the platform's native root certificates.
+    pub fn driver_options(&self) -> Result<DriverOptions, TypedbStoreError> {
+        DriverOptions::new(self.tls, None).map_err(|source| TypedbStoreError::DriverOptions {
+            source: Box::new(source),
+        })
     }
 }
