@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use scepa_rs::{Config, Env};
+use scepa_rs::{Config, Env, log};
 
 const SOURCES_PATH: &str = "sources/pdfs";
 
@@ -19,7 +19,9 @@ async fn main() -> Result<()> {
 
     let pdf_source_dir = PathBuf::from(SOURCES_PATH);
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
-    let _progress = scepa_rs::progress::Progress::new(pdf_paths.len(), config.worker_count);
+    let progress = scepa_rs::progress::Progress::new(pdf_paths.len(), config.worker_count);
+
+    log::setup_tracing(progress.log_writer()).context("Failed to setup logging environment")?;
 
     Ok(())
 }
