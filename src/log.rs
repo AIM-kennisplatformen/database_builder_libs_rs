@@ -1,16 +1,25 @@
-use std::{fs::OpenOptions, io::Write, sync::Mutex};
+use std::{
+    fs::{self, OpenOptions},
+    io::Write,
+    sync::Mutex,
+};
 
-use anyhow::Result;
+use rootcause::prelude::Report;
 use tracing_subscriber::{
     EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-pub fn setup_tracing(console_writer: Box<dyn Write + Send>) -> Result<()> {
+const LOG_DIR: &str = "log";
+const LOG_FILE: &str = "log/pipeline.log";
+
+pub fn setup_tracing(console_writer: Box<dyn Write + Send>) -> Result<(), Report> {
+    fs::create_dir_all(LOG_DIR)?;
+
     let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open("log/pipeline.log")?;
+        .open(LOG_FILE)?;
 
     let builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
     let rust_log = std::env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default();
