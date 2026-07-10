@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+pub mod log;
 pub mod progress;
 
 #[derive(Parser)]
