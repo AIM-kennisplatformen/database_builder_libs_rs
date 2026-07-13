@@ -42,6 +42,12 @@ async fn async_main(config: Config) -> Result<(), Report> {
     let progress = scepa_rs::progress::Progress::new(pdf_paths.len(), config.worker_count);
 
     log::setup_tracing(progress.log_writer()).context("Failed to setup logging environment")?;
+    tracing::info!(
+        pdf_count = pdf_paths.len(),
+        worker_count = config.worker_count,
+        save_debug_artifacts = config.save_debug_artifacts,
+        "starting pipeline"
+    );
 
     let sources = PipelineSources {
         grobid: pipeline::source::grobid::GrobidClient::new(
@@ -91,8 +97,8 @@ async fn run_workers(
                     tracing::error!(
                         pdf = %pdf_path.display(),
                         worker_id,
-                        "pipeline failed for {}",
-                        pdf_path.display(),
+                        error = ?error,
+                        "pipeline failed",
                     );
                     worker_errors.push(error);
                 }
@@ -109,10 +115,16 @@ async fn run_workers(
     progress.finish();
 
     if worker_errors.is_empty() {
+        tracing::info!(processed_files = pdf_paths.len(), "pipeline finished");
         return Ok(());
     }
 
     let failure_count = worker_errors.len();
+    tracing::warn!(
+        processed_files = pdf_paths.len(),
+        failure_count,
+        "pipeline finished with failures"
+    );
     let failures = worker_errors
         .into_iter()
         .map(Report::into_cloneable)
