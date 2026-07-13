@@ -14,6 +14,10 @@ use scepa_rs::{
     pipeline::{self, PipelineSources},
 };
 
+mod progress;
+
+use progress::ProgressBar;
+
 const SOURCES_PATH: &str = "sources/pdfs";
 
 fn main() -> Result<(), Report> {
@@ -39,7 +43,7 @@ fn main() -> Result<(), Report> {
 async fn async_main(config: Config) -> Result<(), Report> {
     let pdf_source_dir = PathBuf::from(SOURCES_PATH);
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
-    let progress = scepa_rs::progress::Progress::new(pdf_paths.len(), config.worker_count);
+    let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
 
     log::setup_tracing(progress.log_writer()).context("Failed to setup logging environment")?;
     tracing::info!(
@@ -62,7 +66,7 @@ async fn async_main(config: Config) -> Result<(), Report> {
 async fn run_workers(
     config: Arc<Config>,
     pdf_paths: Vec<PathBuf>,
-    progress: scepa_rs::progress::Progress,
+    progress: ProgressBar,
     sources: PipelineSources,
 ) -> Result<(), Report> {
     let mut workers = Vec::with_capacity(config.worker_count);

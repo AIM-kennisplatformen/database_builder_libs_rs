@@ -1313,6 +1313,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dotenvy",
+ "indicatif",
  "reqwest",
  "rootcause",
  "rootcause-backtrace",
@@ -1327,7 +1328,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dotenvy",
- "indicatif",
  "quick-xml",
  "reqwest",
  "rootcause",
