@@ -10,7 +10,7 @@ use rootcause::prelude::{Report, ResultExt};
 use rootcause::report_collection::ReportCollection;
 use rootcause_backtrace::BacktraceCollector;
 use scepa_rs::{
-    Config, Env, log,
+    Config, log,
     pipeline::{self, PipelineSources},
 };
 
@@ -19,6 +19,27 @@ mod progress;
 use progress::ProgressBar;
 
 const SOURCES_PATH: &str = "sources/pdfs";
+
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Env {
+    #[arg(long, env = "SAVE_DEBUG_ARTIFACTS", default_value_t = false)]
+    save_debug_artifacts: bool,
+
+    #[arg(long, env = "WORKER_COUNT", default_value_t = 4)]
+    worker_count: usize,
+
+    #[arg(long, env = "GROBID_URL")]
+    grobid_url: String,
+}
+
+impl TryFrom<Env> for Config {
+    type Error = Report;
+
+    fn try_from(env: Env) -> Result<Self, Self::Error> {
+        Config::new(env.save_debug_artifacts, env.worker_count, env.grobid_url)
+    }
+}
 
 fn main() -> Result<(), Report> {
     Hooks::new()
@@ -44,8 +65,10 @@ async fn async_main(config: Config) -> Result<(), Report> {
     let pdf_source_dir = PathBuf::from(SOURCES_PATH);
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
     let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
 
-    log::setup_tracing(progress.log_writer()).context("Failed to setup logging environment")?;
+    log::setup_tracing(progress.log_writer(), &rust_log)
+        .context("Failed to setup logging environment")?;
     tracing::info!(
         pdf_count = pdf_paths.len(),
         worker_count = config.worker_count,

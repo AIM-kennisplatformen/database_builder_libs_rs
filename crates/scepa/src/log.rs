@@ -12,7 +12,7 @@ use tracing_subscriber::{
 const LOG_DIR: &str = "log";
 const LOG_FILE: &str = "log/pipeline.log";
 
-pub fn setup_tracing(console_writer: Box<dyn Write + Send>) -> Result<(), Report> {
+pub fn setup_tracing(console_writer: Box<dyn Write + Send>, rust_log: &str) -> Result<(), Report> {
     fs::create_dir_all(LOG_DIR)?;
 
     let file = OpenOptions::new()
@@ -22,7 +22,6 @@ pub fn setup_tracing(console_writer: Box<dyn Write + Send>) -> Result<(), Report
         .open(LOG_FILE)?;
 
     let builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
-    let rust_log = std::env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default();
 
     let filter = if rust_log
         .split(',')
