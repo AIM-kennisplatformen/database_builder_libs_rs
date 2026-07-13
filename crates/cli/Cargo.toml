@@ -1,0 +1,18 @@
+[package]
+name = "scepa-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive", "env"] }
+dotenvy = "0.15.7"
+reqwest = { version = "0.13.4", features = ["multipart"] }
+rootcause = "0.12.1"
+rootcause-backtrace = "0.12.1"
+scepa-rs = { path = "../scepa" }
+tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
