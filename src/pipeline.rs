@@ -8,6 +8,7 @@ use tracing::Instrument;
 
 pub mod error;
 pub mod source;
+pub mod tei;
 
 use crate::{Config, pipeline::source::grobid::GrobidClient, progress::Progress};
 
