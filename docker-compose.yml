@@ -2,6 +2,48 @@ services:
   grobid:
     image: grobid/grobid:0.9.0-crf
     container_name: kp-grobid
+    profiles:
+      - ingestion
     ports:
       - "8070:8070"
     restart: unless-stopped
+
+  typedb:
+    image: typedb/typedb:3.12.1
+    container_name: kp-scepa
+    profiles:
+      - typedb
+      - ingestion
+    ports:
+      - "1729:1729"
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - kp-scepa-typedb:/opt/typedb-all-linux/server/data
+
+  typedb-mcp:
+    image: typedb/typedb-mcp:1.0.1
+    container_name: kp-scepa-typedb-mcp
+    profiles:
+      - typedb
+    depends_on:
+      typedb:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    command:
+      - "--typedb-address"
+      - "http://typedb:8000"
+      - "--typedb-username"
+      - "admin"
+      - "--typedb-password"
+      - "password"
+    restart: unless-stopped
+
+volumes:
+  kp-scepa-typedb:
