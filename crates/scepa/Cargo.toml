@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 scepa-macros = { path = "../scepa-macros" }
+chrono.workspace = true
+futures-util.workspace = true
 reqwest.workspace = true
 rootcause.workspace = true
 quick-xml = "0.37.5"
@@ -15,3 +17,4 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["ansi", "env-filter", "fmt"] }
 typetag = "0.2.22"
+typedb-driver.workspace = true
