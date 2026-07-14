@@ -1,6 +1,7 @@
 use rootcause::prelude::Report;
 
 pub mod log;
+pub mod models;
 pub mod pipeline;
 pub mod progress;
 

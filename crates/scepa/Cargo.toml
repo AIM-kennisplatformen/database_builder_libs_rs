@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+scepa-macros = { path = "../scepa-macros" }
 reqwest.workspace = true
 rootcause.workspace = true
 quick-xml = "0.37.5"

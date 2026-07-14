@@ -1,0 +1,64 @@
+define
+# --- Attributes ---
+attribute isbn, value string;
+attribute issn, value string;
+attribute doi, value string;
+attribute given-name, value string;
+attribute family-name, value string;
+
+attribute version-number, value string;
+attribute publication-date, value datetime;
+attribute venue-name, value string;
+
+# --- Documents ---
+entity document @abstract,
+    plays contribution:work,
+    plays publishing:published-work;
+
+entity research-paper sub document,
+    owns doi;
+
+entity book sub document,
+    owns isbn,
+    owns issn;
+
+# --- People and Institutions ---
+entity person,
+    owns given-name,
+    owns family-name,
+    plays contribution:contributor;
+
+entity institution,
+    plays publishing:publisher;
+
+entity government-institution sub institution;
+entity education-institution sub institution;
+entity nonprofit-institution sub institution;
+
+# --- Venues ---
+entity publication-venue @abstract,
+    owns venue-name,
+    plays publishing:venue;
+
+entity journal sub publication-venue;
+entity conference sub publication-venue;
+
+# --- Relations ---
+relation contribution,
+    relates contributor @card(1),
+    relates work @card(1);
+
+relation authorship sub contribution,
+    relates author as contributor,
+    relates authored-work as work;
+
+relation peer-review sub contribution,
+    relates reviewer as contributor,
+    relates reviewed-work as work;
+
+relation publishing,
+    relates publisher,
+    relates venue,
+    relates work @card(1),
+    owns version-number,
+    owns publication-date;

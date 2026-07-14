@@ -1338,6 +1338,7 @@ dependencies = [
  "quick-xml",
  "reqwest",
  "rootcause",
+ "scepa-macros",
  "serde",
  "serde_json",
  "thiserror",
