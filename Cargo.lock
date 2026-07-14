@@ -1323,6 +1323,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "scepa-macros"
+version = "0.1.0"
+
+[[package]]
 name = "scepa-rs"
 version = "0.1.0"
 dependencies = [
