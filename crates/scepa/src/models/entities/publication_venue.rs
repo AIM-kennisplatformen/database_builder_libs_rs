@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::relations::publishing::Venue;
+use crate::models::relations::publication_event::Venue;
 use crate::models::{typedb_entity, typedb_relation_role};
 
 #[typedb_entity]

@@ -1,22 +1,44 @@
 define
-# --- Attributes ---
+# --- Document identifiers ---
 attribute isbn, value string;
 attribute issn, value string;
 attribute doi, value string;
+
+# --- Document metadata ---
+attribute title, value string;
+attribute abstract-text, value string;
+attribute acknowledgements, value string;
+attribute conflicts, value string;
+attribute contributions, value string;
+
+# --- Publishing lifecycle ---
+attribute submission-date, value datetime;
+attribute submission-note, value string;
+attribute acceptance-date, value datetime;
+attribute publication-date, value datetime;
+attribute version-number, value string;
+
+# --- Person identity ---
 attribute given-name, value string;
 attribute family-name, value string;
 
-attribute version-number, value string;
-attribute publication-date, value datetime;
+# --- Publication venue ---
 attribute venue-name, value string;
 
 # --- Documents ---
 entity document @abstract,
+    owns title,
+    owns abstract-text,
+    owns acknowledgements,
+    owns conflicts,
+    owns contributions,
     plays contribution:work,
-    plays publishing:published-work;
+    plays publication-event:work;
 
 entity research-paper sub document,
     owns doi;
+
+entity report sub document;
 
 entity book sub document,
     owns isbn,
@@ -29,7 +51,7 @@ entity person,
     plays contribution:contributor;
 
 entity institution,
-    plays publishing:publisher;
+    plays publication-event:publisher;
 
 entity government-institution sub institution;
 entity education-institution sub institution;
@@ -38,7 +60,7 @@ entity nonprofit-institution sub institution;
 # --- Venues ---
 entity publication-venue @abstract,
     owns venue-name,
-    plays publishing:venue;
+    plays publication-event:venue;
 
 entity journal sub publication-venue;
 entity conference sub publication-venue;
@@ -56,9 +78,19 @@ relation peer-review sub contribution,
     relates reviewer as contributor,
     relates reviewed-work as work;
 
-relation publishing,
+# --- The Publishing Lifecycle ---
+relation publication-event @abstract,
     relates publisher,
     relates venue,
-    relates work @card(1),
-    owns version-number,
-    owns publication-date;
+    relates work @card(1);
+
+relation submission sub publication-event,
+    owns submission-date,
+    owns submission-note;
+
+relation acceptance sub publication-event,
+    owns acceptance-date;
+
+relation publication sub publication-event,
+    owns publication-date,
+    owns version-number;

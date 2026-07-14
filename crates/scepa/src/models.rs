@@ -7,6 +7,7 @@ use serde_json::Value;
 #[allow(unused_imports)]
 pub(crate) use scepa_macros::{typedb_entity, typedb_model, typedb_relation, typedb_relation_role};
 
+pub mod chunk;
 pub mod entities;
 pub mod relations;
 

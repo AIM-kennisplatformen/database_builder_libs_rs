@@ -14,25 +14,27 @@ pub enum Contribution {
 pub trait Contributor: std::fmt::Debug {}
 
 #[typedb_relation_role]
-pub trait ContributedWork: std::fmt::Debug {}
+pub trait Work: std::fmt::Debug {}
+
+pub use Work as ContributedWork;
 
 #[typedb_relation]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BaseContribution {
     pub contributor: Option<Box<dyn Contributor>>,
-    pub contributed_work: Option<Box<dyn ContributedWork>>,
+    pub work: Option<Box<dyn Work>>,
 }
 
 #[typedb_relation]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Authorship {
     pub author: Option<Box<dyn Contributor>>,
-    pub authored_work: Option<Box<dyn ContributedWork>>,
+    pub authored_work: Option<Box<dyn Work>>,
 }
 
 #[typedb_relation]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PeerReview {
     pub reviewer: Option<Box<dyn Contributor>>,
-    pub reviewed_work: Option<Box<dyn ContributedWork>>,
+    pub reviewed_work: Option<Box<dyn Work>>,
 }

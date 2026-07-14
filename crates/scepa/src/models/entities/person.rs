@@ -4,13 +4,13 @@ use crate::models::relations::contribution::Contributor;
 use crate::models::{typedb_entity, typedb_relation_role};
 
 #[typedb_entity]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub enum PersonEntity {
     Person(Person),
 }
 
 #[typedb_entity]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Person {
     pub given_name: Option<String>,
     pub family_name: Option<String>,
