@@ -65,7 +65,6 @@ pub async fn run(
             progress,
             worker_id,
         )?;
-
         tracing::info!("completed PDF processing");
         Ok(())
     }
@@ -103,13 +102,11 @@ fn parse_tei(
     tei_xml: &str,
     progress: &impl Progress,
     worker_id: usize,
-) -> Result<tei::Document, Report> {
+) -> Result<crate::domain::DocumentWithChunks, Report> {
     let document = tei::parse(tei_xml).context("failed to parse extracted TEI XML")?;
     tracing::debug!(
-        title = ?document.title,
-        authors = document.authors.len(),
-        sections = document.sections.len(),
-        references = document.references.len(),
+        document = ?document.document,
+        chunks = document.chunks.len(),
         "parsed TEI XML"
     );
 

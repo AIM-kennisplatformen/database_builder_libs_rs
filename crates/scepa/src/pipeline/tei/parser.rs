@@ -1,19 +1,34 @@
-use std::collections::HashMap;
-
 use rootcause::prelude::Report;
 
-use super::{
-    Address, Affiliation, ArticleDates, Author, Document, Figure, FigureImage, Funding,
-    Organization, Reference, Section,
-    tree::{Node, child, children_named, descendant, parse_tree, text},
+use crate::{
+    domain::DocumentWithChunks,
+    models::{
+        chunk::{Abstract, Chunk, Figure, Image, Text},
+        entities::{
+            Entity,
+            document::{Document as TypedbDocument, ResearchPaper},
+            person::{Person, PersonEntity},
+        },
+        relations::{
+            Relation,
+            contribution::{Authorship, Contribution, Work as ContributionWork},
+            publication_event::{
+                Acceptance, PublicationEventRelation, Submission, Work as PublicationWork,
+            },
+        },
+    },
 };
 
-pub fn parse(xml: &str) -> Result<Document, Report> {
+use super::tree::{Node, child, children_named, descendant, parse_tree, text};
+
+pub fn parse(xml: &str) -> Result<DocumentWithChunks, Report> {
     let root = parse_tree(xml)?;
     let header = descendant(&root, "teiHeader");
     let body = descendant(&root, "body");
     let source = header.and_then(|node| descendant(node, "biblStruct"));
     let analytic = source.and_then(|node| child(node, "analytic"));
+    let abstract_node = header.and_then(|node| descendant(node, "abstract"));
+    let back = descendant(&root, "back");
 
     let title = header
         .and_then(|node| descendant(node, "titleStmt"))
@@ -24,185 +39,217 @@ pub fn parse(xml: &str) -> Result<Document, Report> {
                 .or_else(|| child(node, "title"))
         })
         .map(text);
-    let authors = analytic
+    let abstract_text = abstract_node.map(text);
+    let doi = source.and_then(|node| identifier(node, "DOI"));
+    let people = analytic
         .map(|node| {
             children_named(node, "author")
                 .into_iter()
-                .map(author)
-                .collect()
+                .map(person)
+                .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let abstract_text = header
-        .and_then(|node| descendant(node, "abstract"))
-        .map(text);
-    let doi = source.and_then(|node| identifier(node, "DOI"));
-    let dates = source.map(article_dates).unwrap_or_default();
-    let funding = parse_funding(&root);
-    let back = descendant(&root, "back");
-    let sections = body.map(parse_sections).unwrap_or_default();
-    let figures = root
-        .descendants_named("figure")
-        .into_iter()
-        .map(figure)
-        .collect();
-    let references = root
-        .descendants_named("biblStruct")
-        .into_iter()
-        .filter(|node| node.attributes.contains_key("id"))
-        .map(reference)
-        .collect();
+    let (submission_date, acceptance_date, submission_note) =
+        source.map(article_dates).unwrap_or_default();
+    let acknowledgements = back.and_then(|node| back_matter(node, "acknowledgement"));
+    let conflicts = back.and_then(|node| back_matter(node, "conflict"));
+    let contributions = back.and_then(|node| back_matter(node, "contribution"));
 
-    Ok(Document {
+    let document = TypedbDocument::ResearchPaper(ResearchPaper {
         title,
-        authors,
         doi,
-        dates,
-        funding,
-        abstract_text,
-        sections,
-        figures,
-        acknowledgements: back.and_then(|node| back_matter(node, "acknowledgement")),
-        conflicts: back.and_then(|node| back_matter(node, "conflict")),
-        contributions: back.and_then(|node| back_matter(node, "contribution")),
-        references,
+        abstract_text: abstract_text.clone(),
+        acknowledgements: acknowledgements.clone(),
+        conflicts: conflicts.clone(),
+        contributions: contributions.clone(),
+    });
+
+    let mut relations = people
+        .iter()
+        .map(|person| {
+            Relation::Contribution(Contribution::Authorship(Authorship {
+                author: Some(Box::new(person_value(person))),
+                authored_work: Some(contribution_work(&document)),
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    if submission_date.is_some() || submission_note.is_some() {
+        relations.push(Relation::PublicationEvent(
+            PublicationEventRelation::Submission(Submission {
+                publisher: None,
+                venue: None,
+                work: publication_work(&document),
+                submission_date,
+                submission_note,
+            }),
+        ));
+    }
+    if acceptance_date.is_some() {
+        relations.push(Relation::PublicationEvent(
+            PublicationEventRelation::Acceptance(Acceptance {
+                publisher: None,
+                venue: None,
+                work: publication_work(&document),
+                acceptance_date,
+            }),
+        ));
+    }
+
+    Ok(DocumentWithChunks {
+        document,
+        entities: people.into_iter().map(Entity::Person).collect(),
+        relations,
+        chunks: parse_chunks(
+            &root,
+            abstract_node,
+            body,
+            back,
+            acknowledgements.as_deref(),
+            conflicts.as_deref(),
+            contributions.as_deref(),
+        ),
     })
 }
 
-fn figure(node: &Node) -> Figure {
-    Figure {
-        id: node.attributes.get("id").cloned(),
-        kind: node.attributes.get("type").cloned(),
-        heading: child(node, "head")
+fn parse_chunks(
+    root: &Node,
+    abstract_node: Option<&Node>,
+    body: Option<&Node>,
+    back: Option<&Node>,
+    acknowledgements: Option<&str>,
+    conflicts: Option<&str>,
+    contributions: Option<&str>,
+) -> Vec<Chunk> {
+    let mut chunks = Vec::new();
+
+    if let Some(text) = abstract_node.map(text).filter(|text| !text.is_empty()) {
+        push_abstract_chunk(&mut chunks, None, &text);
+    }
+
+    if let Some(body) = body {
+        for div in body.descendants_named("div") {
+            let heading = child(div, "head")
+                .map(text)
+                .filter(|value| !value.is_empty());
+            let paragraphs = div.descendants_named("p");
+
+            if paragraphs.is_empty() {
+                if let Some(heading) = heading.as_deref() {
+                    push_text_chunk(&mut chunks, Some(heading), "");
+                }
+                continue;
+            }
+
+            for paragraph in paragraphs {
+                let paragraph = text(paragraph);
+                if !paragraph.is_empty() {
+                    push_text_chunk(&mut chunks, heading.as_deref(), &paragraph);
+                }
+            }
+        }
+    }
+
+    for value in [acknowledgements, conflicts, contributions] {
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            push_text_chunk(&mut chunks, None, value);
+        }
+    }
+
+    if let Some(back) = back {
+        for div in children_named(back, "div") {
+            if div.attributes.get("type").map(String::as_str) == Some("other") {
+                let value = text(div);
+                if !value.is_empty() {
+                    push_text_chunk(&mut chunks, None, &value);
+                }
+            }
+        }
+    }
+
+    for figure in root.descendants_named("figure") {
+        let heading = child(figure, "head")
             .map(text)
-            .filter(|value| !value.is_empty()),
-        label: child(node, "label")
-            .map(text)
-            .filter(|value| !value.is_empty()),
-        caption: child(node, "figDesc")
-            .map(text)
-            .filter(|value| !value.is_empty()),
-        images: node
+            .filter(|value| !value.is_empty());
+        push_figure_chunk(&mut chunks, heading.as_deref());
+
+        for _image in figure
             .descendants_named("graphic")
             .into_iter()
-            .chain(node.descendants_named("media"))
-            .map(|image| FigureImage {
-                url: image
-                    .attributes
-                    .get("url")
-                    .or_else(|| image.attributes.get("target"))
-                    .cloned(),
-                media_type: image.attributes.get("type").cloned(),
-                coordinates: image.attributes.get("coords").cloned(),
-            })
-            .collect(),
+            .chain(figure.descendants_named("media"))
+        {
+            push_image_chunk(&mut chunks, heading.as_deref());
+        }
     }
+
+    chunks
 }
 
-fn parse_sections(body: &Node) -> Vec<Section> {
-    body.descendants_named("div")
-        .into_iter()
-        .filter_map(|div| {
-            let heading = child(div, "head").map(text);
-            let paragraphs = div
-                .descendants_named("p")
-                .into_iter()
-                .map(text)
-                .collect::<Vec<_>>();
-            (heading.is_some() || !paragraphs.is_empty()).then_some(Section {
-                heading,
-                paragraphs,
-            })
-        })
-        .collect()
+fn push_text_chunk(chunks: &mut Vec<Chunk>, section_heading: Option<&str>, text: &str) {
+    chunks.push(Chunk::Text(Text {
+        bounding_boxes: Vec::new(),
+        index: chunks.len(),
+        section_heading: section_heading.map(str::to_owned),
+        document_hash: String::new(),
+        text: text.to_owned(),
+    }));
 }
 
-fn author(node: &Node) -> Author {
+fn push_abstract_chunk(chunks: &mut Vec<Chunk>, section_heading: Option<&str>, text: &str) {
+    chunks.push(Chunk::Abstract(Abstract {
+        bounding_boxes: Vec::new(),
+        index: chunks.len(),
+        section_heading: section_heading.map(str::to_owned),
+        document_hash: String::new(),
+        text: text.to_owned(),
+    }));
+}
+
+fn push_figure_chunk(chunks: &mut Vec<Chunk>, section_heading: Option<&str>) {
+    chunks.push(Chunk::Figure(Figure {
+        bounding_boxes: Vec::new(),
+        index: chunks.len(),
+        section_heading: section_heading.map(str::to_owned),
+        document_hash: String::new(),
+    }));
+}
+
+fn push_image_chunk(chunks: &mut Vec<Chunk>, section_heading: Option<&str>) {
+    chunks.push(Chunk::Image(Image {
+        bounding_boxes: Vec::new(),
+        index: chunks.len(),
+        section_heading: section_heading.map(str::to_owned),
+        document_hash: String::new(),
+    }));
+}
+
+fn person(node: &Node) -> PersonEntity {
     let name = child(node, "persName");
-    Author {
+    PersonEntity::Person(Person {
         given_name: name.and_then(|name| child(name, "forename")).map(text),
-        middle_names: name
-            .map(|name| {
-                children_named(name, "forename")
-                    .into_iter()
-                    .filter(|forename| {
-                        forename.attributes.get("type").map(String::as_str) == Some("middle")
-                    })
-                    .map(text)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        surname: name.and_then(|name| child(name, "surname")).map(text),
-        email: child(node, "email").map(text),
-        orcid: identifier(node, "ORCID"),
-        affiliations: children_named(node, "affiliation")
-            .into_iter()
-            .map(affiliation)
-            .collect(),
+        family_name: name.and_then(|name| child(name, "surname")).map(text),
+    })
+}
+
+fn person_value(person: &PersonEntity) -> Person {
+    match person {
+        PersonEntity::Person(person) => person.clone(),
     }
 }
 
-fn affiliation(node: &Node) -> Affiliation {
-    Affiliation {
-        key: node.attributes.get("key").cloned(),
-        organizations: children_named(node, "orgName")
-            .into_iter()
-            .map(|org| Organization {
-                kind: org.attributes.get("type").cloned(),
-                name: text(org),
-            })
-            .collect(),
-        address: child(node, "address").map(|address| Address {
-            settlement: child(address, "settlement").map(text),
-            region: child(address, "region").map(text),
-            country: child(address, "country").map(text),
-        }),
+fn contribution_work(document: &TypedbDocument) -> Box<dyn ContributionWork> {
+    match document {
+        TypedbDocument::Book(document) => Box::new(document.clone()),
+        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
+        TypedbDocument::Report(document) => Box::new(document.clone()),
     }
 }
 
-fn reference(node: &Node) -> Reference {
-    let analytic = child(node, "analytic");
-    let monogr = child(node, "monogr");
-    let imprint = monogr.and_then(|node| child(node, "imprint"));
-    Reference {
-        id: node.attributes.get("id").cloned(),
-        title: analytic
-            .and_then(|node| child(node, "title"))
-            .or_else(|| monogr.and_then(|node| child(node, "title")))
-            .map(text)
-            .filter(|title| !title.is_empty()),
-        authors: analytic
-            .or(monogr)
-            .map(|node| {
-                children_named(node, "author")
-                    .into_iter()
-                    .map(author)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        doi: identifier(node, "DOI"),
-        journal: monogr
-            .and_then(|node| {
-                children_named(node, "title")
-                    .into_iter()
-                    .find(|title| title.attributes.get("level").map(String::as_str) == Some("j"))
-            })
-            .map(text),
-        publication_year: imprint
-            .and_then(|node| child(node, "date"))
-            .and_then(publication_year),
-        volume: imprint
-            .and_then(|node| scope(node, "volume"))
-            .map(text)
-            .filter(|value| !value.is_empty()),
-        pages: imprint
-            .and_then(|node| scope(node, "page"))
-            .and_then(page_range),
-        external_urls: node
-            .descendants_named("ptr")
-            .into_iter()
-            .chain(node.descendants_named("ref"))
-            .filter_map(|link| link.attributes.get("target").cloned())
-            .collect(),
+fn publication_work(document: &TypedbDocument) -> Box<dyn PublicationWork> {
+    match document {
+        TypedbDocument::Book(document) => Box::new(document.clone()),
+        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
+        TypedbDocument::Report(document) => Box::new(document.clone()),
     }
 }
 
@@ -218,33 +265,7 @@ fn identifier(node: &Node, kind: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn scope<'a>(node: &'a Node, unit: &str) -> Option<&'a Node> {
-    children_named(node, "biblScope")
-        .into_iter()
-        .find(|scope| scope.attributes.get("unit").map(String::as_str) == Some(unit))
-}
-
-fn page_range(scope: &Node) -> Option<String> {
-    match (scope.attributes.get("from"), scope.attributes.get("to")) {
-        (Some(from), Some(to)) => Some(format!("{from}-{to}")),
-        (Some(from), None) => Some(from.clone()),
-        _ => (!text(scope).is_empty()).then(|| text(scope)),
-    }
-}
-
-fn publication_year(date: &Node) -> Option<String> {
-    let value = date
-        .attributes
-        .get("when")
-        .cloned()
-        .unwrap_or_else(|| text(date));
-    value
-        .get(..4)
-        .filter(|year| year.chars().all(|character| character.is_ascii_digit()))
-        .map(str::to_owned)
-}
-
-fn article_dates(source: &Node) -> ArticleDates {
+fn article_dates(source: &Node) -> (Option<String>, Option<String>, Option<String>) {
     let submission_note = children_named(source, "note")
         .into_iter()
         .find(|note| note.attributes.get("type").map(String::as_str) == Some("submission"))
@@ -253,11 +274,7 @@ fn article_dates(source: &Node) -> ArticleDates {
         .as_deref()
         .map(split_submission_dates)
         .unwrap_or_default();
-    ArticleDates {
-        submission_date,
-        acceptance_date,
-        submission_note,
-    }
+    (submission_date, acceptance_date, submission_note)
 }
 
 fn split_submission_dates(note: &str) -> (Option<String>, Option<String>) {
@@ -276,38 +293,6 @@ fn split_submission_dates(note: &str) -> (Option<String>, Option<String>) {
         .map(|(_, value)| value.trim().to_owned())
         .filter(|value| !value.is_empty());
     (submission_date, acceptance_date)
-}
-
-fn parse_funding(root: &Node) -> Vec<Funding> {
-    let organizations = root
-        .descendants_named("org")
-        .into_iter()
-        .filter_map(|org| {
-            Some((
-                org.attributes.get("id")?.clone(),
-                (
-                    child(org, "orgName").map(text),
-                    identifier(org, "grant-number"),
-                ),
-            ))
-        })
-        .collect::<HashMap<_, _>>();
-
-    root.descendants_named("funder")
-        .into_iter()
-        .map(|funder| {
-            let reference = funder.attributes.get("ref").cloned();
-            let linked = reference
-                .as_deref()
-                .and_then(|reference| organizations.get(reference.trim_start_matches('#')));
-            Funding {
-                name: child(funder, "orgName").map(text),
-                reference,
-                project: linked.and_then(|(project, _)| project.clone()),
-                grant_number: linked.and_then(|(_, grant_number)| grant_number.clone()),
-            }
-        })
-        .collect()
 }
 
 fn back_matter(back: &Node, kind: &str) -> Option<String> {
