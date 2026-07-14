@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use serde_json::json;
 
 use super::chunk::Chunk;
@@ -203,7 +204,7 @@ fn publication_uses_trait_object_entity_participants() {
             contributions: None,
         }),
         version_number: Some("version-of-record".to_owned()),
-        publication_date: Some("2020-08-26T00:00:00Z".to_owned()),
+        publication_date: Some(DateTime::parse_from_rfc3339("2020-08-26T00:00:00Z").unwrap()),
     };
 
     let serialized = serde_json::to_value(&publication).unwrap();
@@ -238,7 +239,7 @@ fn publication_event_subtypes_carry_their_schema_type() {
             contributions: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
         }),
-        submission_date: Some("2020-01-01T00:00:00Z".to_owned()),
+        submission_date: Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap()),
         submission_note: Some("Received: 2020-01-01".to_owned()),
     });
 

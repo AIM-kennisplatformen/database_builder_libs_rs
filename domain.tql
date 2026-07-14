@@ -33,6 +33,8 @@ entity document @abstract,
     owns conflicts,
     owns contributions,
     plays contribution:work,
+    plays authorship:authored-work,
+    plays peer-review:reviewed-work,
     plays publication-event:work;
 
 entity research-paper sub document,
@@ -48,7 +50,9 @@ entity book sub document,
 entity person,
     owns given-name,
     owns family-name,
-    plays contribution:contributor;
+    plays contribution:contributor,
+    plays authorship:author,
+    plays peer-review:reviewer;
 
 entity institution,
     plays publication-event:publisher;

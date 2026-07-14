@@ -1,15 +1,17 @@
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
+use crate::models::entities::TypeDbEntity;
 use crate::models::{typedb_relation, typedb_relation_role};
 
 #[typedb_relation_role]
-pub trait Publisher: std::fmt::Debug {}
+pub trait Publisher: std::fmt::Debug + TypeDbEntity {}
 
 #[typedb_relation_role]
-pub trait Venue: std::fmt::Debug {}
+pub trait Venue: std::fmt::Debug + TypeDbEntity {}
 
 #[typedb_relation_role]
-pub trait Work: std::fmt::Debug {}
+pub trait Work: std::fmt::Debug + TypeDbEntity {}
 
 pub use Work as PublishedWork;
 
@@ -37,7 +39,7 @@ pub struct Submission {
     pub publisher: Option<Box<dyn Publisher>>,
     pub venue: Option<Box<dyn Venue>>,
     pub work: Box<dyn Work>,
-    pub submission_date: Option<String>,
+    pub submission_date: Option<DateTime<FixedOffset>>,
     pub submission_note: Option<String>,
 }
 
@@ -47,7 +49,7 @@ pub struct Acceptance {
     pub publisher: Option<Box<dyn Publisher>>,
     pub venue: Option<Box<dyn Venue>>,
     pub work: Box<dyn Work>,
-    pub acceptance_date: Option<String>,
+    pub acceptance_date: Option<DateTime<FixedOffset>>,
 }
 
 #[typedb_relation]
@@ -56,6 +58,6 @@ pub struct Publication {
     pub publisher: Option<Box<dyn Publisher>>,
     pub venue: Option<Box<dyn Venue>>,
     pub work: Box<dyn Work>,
-    pub publication_date: Option<String>,
+    pub publication_date: Option<DateTime<FixedOffset>>,
     pub version_number: Option<String>,
 }
