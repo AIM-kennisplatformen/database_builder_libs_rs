@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use rootcause::{
@@ -12,20 +13,25 @@ use tracing::Instrument;
 pub mod error;
 pub mod source;
 pub mod tei;
+pub mod typedb;
 
 use crate::{
     Config,
     pipeline::source::grobid::GrobidClient,
     progress::{Progress, ProgressEvent},
+    typedb::{Connected, TypeDbDriver},
 };
 
-pub const TOTAL_STEPS: usize = 2;
+use self::typedb::typeql_queries;
+
+pub const TOTAL_STEPS: usize = 3;
 pub const RAW_TEI_ARTIFACTS_DIR: &str = "log/raw_tei";
 pub const PARSED_TEI_ARTIFACTS_DIR: &str = "log/parsed_tei";
 
 #[derive(Clone)]
 pub struct PipelineSources {
     pub grobid: GrobidClient,
+    pub typedb: Arc<TypeDbDriver<Connected>>,
 }
 
 pub async fn run(
@@ -58,13 +64,18 @@ pub async fn run(
             worker_id,
         )
         .await?;
-        let _document = parse_tei(
-            config.save_debug_artifacts,
-            pdf_file,
-            &tei_xml,
-            progress,
-            worker_id,
-        )?;
+        let queries = {
+            let document = parse_tei(
+                config.save_debug_artifacts,
+                pdf_file,
+                &tei_xml,
+                progress,
+                worker_id,
+            )?;
+            typeql_queries(&document)
+        };
+        export_to_typedb(&sources.typedb, queries, progress, worker_id).await?;
+
         tracing::info!("completed PDF processing");
         Ok(())
     }
@@ -122,6 +133,25 @@ fn parse_tei(
     });
 
     Ok(document)
+}
+
+async fn export_to_typedb(
+    typedb: &TypeDbDriver<Connected>,
+    queries: Vec<String>,
+    progress: &impl Progress,
+    worker_id: usize,
+) -> Result<(), Report> {
+    typedb
+        .export_queries(queries)
+        .await
+        .context("failed to export parsed domain models to TypeDB")?;
+    progress.report(ProgressEvent::Step {
+        worker_id,
+        step: 3,
+        message: Some("exported domain models to TypeDB".to_owned()),
+    });
+
+    Ok(())
 }
 
 pub fn save_debug_artifact(

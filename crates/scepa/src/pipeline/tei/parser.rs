@@ -1,3 +1,4 @@
+use chrono::{DateTime, FixedOffset, NaiveDate, TimeZone};
 use rootcause::prelude::Report;
 
 use crate::{
@@ -265,7 +266,13 @@ fn identifier(node: &Node, kind: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn article_dates(source: &Node) -> (Option<String>, Option<String>, Option<String>) {
+fn article_dates(
+    source: &Node,
+) -> (
+    Option<DateTime<FixedOffset>>,
+    Option<DateTime<FixedOffset>>,
+    Option<String>,
+) {
     let submission_note = children_named(source, "note")
         .into_iter()
         .find(|note| note.attributes.get("type").map(String::as_str) == Some("submission"))
@@ -277,7 +284,9 @@ fn article_dates(source: &Node) -> (Option<String>, Option<String>, Option<Strin
     (submission_date, acceptance_date, submission_note)
 }
 
-fn split_submission_dates(note: &str) -> (Option<String>, Option<String>) {
+fn split_submission_dates(
+    note: &str,
+) -> (Option<DateTime<FixedOffset>>, Option<DateTime<FixedOffset>>) {
     let submission_date = note
         .split_once("Received:")
         .map(|(_, value)| {
@@ -286,13 +295,22 @@ fn split_submission_dates(note: &str) -> (Option<String>, Option<String>) {
                 .map_or(value, |(date, _)| date)
         })
         .map(str::trim)
-        .map(str::to_owned)
-        .filter(|value| !value.is_empty());
+        .and_then(parse_datetime);
     let acceptance_date = note
         .split_once("Accepted:")
-        .map(|(_, value)| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
+        .map(|(_, value)| value.trim())
+        .and_then(parse_datetime);
     (submission_date, acceptance_date)
+}
+
+fn parse_datetime(value: &str) -> Option<DateTime<FixedOffset>> {
+    DateTime::parse_from_rfc3339(value).ok().or_else(|| {
+        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()?;
+        let datetime = date.and_hms_opt(0, 0, 0)?;
+        FixedOffset::east_opt(0)?
+            .from_local_datetime(&datetime)
+            .single()
+    })
 }
 
 fn back_matter(back: &Node, kind: &str) -> Option<String> {

@@ -5,6 +5,7 @@ pub mod log;
 pub mod models;
 pub mod pipeline;
 pub mod progress;
+pub mod typedb;
 
 #[derive(Debug)]
 pub struct Config {

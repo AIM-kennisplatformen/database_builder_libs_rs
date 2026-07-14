@@ -12,6 +12,7 @@ use rootcause_backtrace::BacktraceCollector;
 use scepa_rs::{
     Config, log,
     pipeline::{self, PipelineSources},
+    typedb::{TypeDbConfig, TypeDbDriver},
 };
 
 mod progress;
@@ -31,6 +32,24 @@ struct Env {
 
     #[arg(long, env = "GROBID_URL")]
     grobid_url: String,
+
+    #[arg(long, env = "TYPEDB_ADDRESS", default_value = "127.0.0.1:1729")]
+    typedb_address: String,
+
+    #[arg(long, env = "TYPEDB_DATABASE", default_value = "scepa")]
+    typedb_database: String,
+
+    #[arg(long, env = "TYPEDB_USERNAME", default_value = "admin")]
+    typedb_username: String,
+
+    #[arg(long, env = "TYPEDB_PASSWORD", default_value = "password")]
+    typedb_password: String,
+
+    #[arg(long, env = "TYPEDB_TLS", default_value_t = false)]
+    typedb_tls: bool,
+
+    #[arg(long, env = "TYPEDB_WIPE_DATABASE", default_value_t = true)]
+    typedb_wipe_database: bool,
 }
 
 impl TryFrom<Env> for Config {
@@ -50,6 +69,14 @@ fn main() -> Result<(), Report> {
     dotenvy::dotenv().expect("Failed to load .env file");
 
     let env = Env::try_parse().context("Failed to parse .env file")?;
+    let typedb_config = TypeDbConfig::new(
+        env.typedb_address.clone(),
+        env.typedb_database.clone(),
+        env.typedb_username.clone(),
+        env.typedb_password.clone(),
+        env.typedb_tls,
+        env.typedb_wipe_database,
+    );
 
     let config = Config::try_from(env).context("Failed to create config from env")?;
 
@@ -58,10 +85,10 @@ fn main() -> Result<(), Report> {
         .enable_all()
         .build()
         .context("Failed to build Tokio runtime")?
-        .block_on(async_main(config))
+        .block_on(async_main(config, typedb_config))
 }
 
-async fn async_main(config: Config) -> Result<(), Report> {
+async fn async_main(config: Config, typedb_config: TypeDbConfig) -> Result<(), Report> {
     let pdf_source_dir = PathBuf::from(SOURCES_PATH);
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
     let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
@@ -76,14 +103,25 @@ async fn async_main(config: Config) -> Result<(), Report> {
         "starting pipeline"
     );
 
+    let typedb = Arc::new(
+        TypeDbDriver::default()
+            .connect(&typedb_config)
+            .await
+            .context("failed to connect to TypeDB")?,
+    );
     let sources = PipelineSources {
         grobid: pipeline::source::grobid::GrobidClient::new(
             config.grobid_url.clone(),
             reqwest::Client::new(),
         ),
+        typedb: Arc::clone(&typedb),
     };
 
-    run_workers(Arc::new(config), pdf_paths, progress, sources).await
+    let result = run_workers(Arc::new(config), pdf_paths, progress, sources).await;
+    if let Ok(typedb) = Arc::try_unwrap(typedb) {
+        typedb.disconnect()?;
+    }
+    result
 }
 
 async fn run_workers(
