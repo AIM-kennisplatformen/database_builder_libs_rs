@@ -4,7 +4,6 @@ use crate::models::{typedb_relation, typedb_relation_role};
 
 #[typedb_relation]
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
 pub enum Contribution {
     Contribution(BaseContribution),
     Authorship(Authorship),

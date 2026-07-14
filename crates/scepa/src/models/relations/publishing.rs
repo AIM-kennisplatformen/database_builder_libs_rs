@@ -13,6 +13,12 @@ pub trait PublishedWork: std::fmt::Debug {}
 
 #[typedb_relation]
 #[derive(Serialize, Deserialize, Debug)]
+pub enum PublishingRelation {
+    Publishing(Publishing),
+}
+
+#[typedb_relation]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Publishing {
     pub publisher: Option<Box<dyn Publisher>>,
     pub venue: Option<Box<dyn Venue>>,

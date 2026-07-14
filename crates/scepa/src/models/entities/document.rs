@@ -5,7 +5,6 @@ use crate::models::{typedb_entity, typedb_relation_role};
 
 #[typedb_entity]
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type", content = "attrs")]
 pub enum Document {
     Book(Book),
     ResearchPaper(ResearchPaper),
