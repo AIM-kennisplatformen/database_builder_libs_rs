@@ -10,7 +10,7 @@ use super::entities::{
 };
 use super::relations::{
     Relation,
-    contribution::{Authorship, PeerReview},
+    contribution::{Authorship, BaseContribution, Contribution, PeerReview},
     publication_event::{Publication, PublicationEventRelation, Submission},
 };
 use crate::pipeline::tei;
@@ -79,6 +79,39 @@ fn entity_hierarchies_round_trip_through_their_local_enums() {
     });
     let parsed: PersonEntity = serde_json::from_value(person.clone()).unwrap();
     assert_eq!(serde_json::to_value(parsed).unwrap(), person);
+}
+
+#[test]
+fn aggregate_typedb_enums_use_kebab_case_variant_names() {
+    let entity = Entity::Person(PersonEntity::Person(Person {
+        given_name: Some("Marie".to_owned()),
+        family_name: Some("Curie".to_owned()),
+    }));
+    assert_eq!(
+        serde_json::to_value(entity).unwrap(),
+        json!({
+            "person": {
+                "type": "person",
+                "attrs": {
+                    "given-name": "Marie",
+                    "family-name": "Curie"
+                }
+            }
+        })
+    );
+
+    let relation = Relation::Contribution(Contribution::Contribution(BaseContribution {
+        contributor: None,
+        work: None,
+    }));
+    assert_eq!(
+        serde_json::to_value(relation).unwrap(),
+        json!({
+            "contribution": {
+                "type": "contribution"
+            }
+        })
+    );
 }
 
 #[test]
