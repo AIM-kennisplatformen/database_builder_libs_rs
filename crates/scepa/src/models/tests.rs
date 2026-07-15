@@ -10,7 +10,8 @@ use super::entities::{
     publication_venue::{Conference, Journal, PublicationVenue},
 };
 use super::relations::{
-    Relation,
+    Relation, TypeDbRelation,
+    citation::Citation,
     contribution::{Authorship, BaseContribution, Contribution, PeerReview},
     publication_event::{Publication, PublicationEventRelation, Submission},
 };
@@ -19,6 +20,7 @@ use crate::pipeline::tei;
 #[test]
 fn document_serializes_to_its_deserialization_envelope() {
     let document = Document::ResearchPaper(ResearchPaper {
+        entity_id: "document:doi:10.1038/s41586-020-2649-2".to_owned(),
         pdf_hash: None,
         title: None,
         doi: Some("10.1038/s41586-020-2649-2".to_owned()),
@@ -34,6 +36,7 @@ fn document_serializes_to_its_deserialization_envelope() {
         json!({
             "type": "research-paper",
             "attrs": {
+                "entity-id": "document:doi:10.1038/s41586-020-2649-2",
                 "doi": "10.1038/s41586-020-2649-2"
             }
         })
@@ -46,8 +49,8 @@ fn document_serializes_to_its_deserialization_envelope() {
 #[test]
 fn entity_hierarchies_round_trip_through_their_local_enums() {
     let documents = [
-        json!({"type": "book", "attrs": {"isbn": "978-0-123456-47-2", "issn": "0028-0836"}}),
-        json!({"type": "research-paper", "attrs": {"doi": "10.1038/s41586-020-2649-2"}}),
+        json!({"type": "book", "attrs": {"entity-id": "document:isbn:9780123456472", "isbn": "978-0-123456-47-2", "issn": "0028-0836"}}),
+        json!({"type": "research-paper", "attrs": {"entity-id": "document:doi:10.1038/s41586-020-2649-2", "doi": "10.1038/s41586-020-2649-2"}}),
     ];
     for document in documents {
         let parsed: Document = serde_json::from_value(document.clone()).unwrap();
@@ -61,14 +64,14 @@ fn entity_hierarchies_round_trip_through_their_local_enums() {
         "nonprofit-institution",
     ];
     for institution in institutions {
-        let value = json!({"type": institution, "attrs": {}});
+        let value = json!({"type": institution, "attrs": {"entity-id": format!("institution:source:document:test:{institution}")}});
         let parsed: InstitutionEntity = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(parsed).unwrap(), value);
     }
 
     let venues = [
-        json!({"type": "journal", "attrs": {"venue-name": "Nature"}}),
-        json!({"type": "conference", "attrs": {"venue-name": "NeurIPS"}}),
+        json!({"type": "journal", "attrs": {"entity-id": "publication-venue:source:document:test:journal", "venue-name": "Nature"}}),
+        json!({"type": "conference", "attrs": {"entity-id": "publication-venue:source:document:test:conference", "venue-name": "NeurIPS"}}),
     ];
     for venue in venues {
         let parsed: PublicationVenue = serde_json::from_value(venue.clone()).unwrap();
@@ -77,7 +80,7 @@ fn entity_hierarchies_round_trip_through_their_local_enums() {
 
     let person = json!({
         "type": "person",
-        "attrs": {"given-name": "Marie", "family-name": "Curie"}
+        "attrs": {"entity-id": "person:source:document:test:author-0", "given-name": "Marie", "family-name": "Curie"}
     });
     let parsed: PersonEntity = serde_json::from_value(person.clone()).unwrap();
     assert_eq!(serde_json::to_value(parsed).unwrap(), person);
@@ -86,8 +89,10 @@ fn entity_hierarchies_round_trip_through_their_local_enums() {
 #[test]
 fn aggregate_typedb_enums_use_kebab_case_variant_names() {
     let entity = Entity::Person(PersonEntity::Person(Person {
+        entity_id: "person:source:document:test:author-0".to_owned(),
         given_name: Some("Marie".to_owned()),
         family_name: Some("Curie".to_owned()),
+        orcid: None,
     }));
     assert_eq!(
         serde_json::to_value(entity).unwrap(),
@@ -95,6 +100,7 @@ fn aggregate_typedb_enums_use_kebab_case_variant_names() {
             "person": {
                 "type": "person",
                 "attrs": {
+                    "entity-id": "person:source:document:test:author-0",
                     "given-name": "Marie",
                     "family-name": "Curie"
                 }
@@ -120,10 +126,13 @@ fn aggregate_typedb_enums_use_kebab_case_variant_names() {
 fn authorship_and_peer_review_serialize_trait_object_participants() {
     let authorship = Authorship {
         author: Some(Box::new(Person {
+            entity_id: "person:source:document:test:author-0".to_owned(),
             given_name: Some("Marie".to_owned()),
             family_name: Some("Curie".to_owned()),
+            orcid: None,
         })),
         authored_work: Some(Box::new(ResearchPaper {
+            entity_id: "document:doi:10.1038/s41586-020-2649-2".to_owned(),
             pdf_hash: None,
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
@@ -135,10 +144,13 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
     };
     let peer_review = PeerReview {
         reviewer: Some(Box::new(Person {
+            entity_id: "person:source:document:test:author-1".to_owned(),
             given_name: Some("Pierre".to_owned()),
             family_name: Some("Curie".to_owned()),
+            orcid: None,
         })),
         reviewed_work: Some(Box::new(Book {
+            entity_id: "document:isbn:9780123456473".to_owned(),
             pdf_hash: None,
             title: None,
             abstract_text: None,
@@ -157,13 +169,14 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             "author": {
                 "type": "person",
                 "attrs": {
+                    "entity-id": "person:source:document:test:author-0",
                     "given-name": "Marie",
                     "family-name": "Curie"
                 }
             },
             "authored-work": {
                 "type": "research-paper",
-                "attrs": {"doi": "10.1038/s41586-020-2649-2"}
+                "attrs": {"entity-id": "document:doi:10.1038/s41586-020-2649-2", "doi": "10.1038/s41586-020-2649-2"}
             }
         })
     );
@@ -177,13 +190,14 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             "reviewer": {
                 "type": "person",
                 "attrs": {
+                    "entity-id": "person:source:document:test:author-1",
                     "given-name": "Pierre",
                     "family-name": "Curie"
                 }
             },
             "reviewed-work": {
                 "type": "book",
-                "attrs": {"isbn": "978-0-123456-47-3"}
+                "attrs": {"entity-id": "document:isbn:9780123456473", "isbn": "978-0-123456-47-3"}
             }
         })
     );
@@ -194,11 +208,17 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
 #[test]
 fn publication_uses_trait_object_entity_participants() {
     let publication = Publication {
-        publisher: Some(Box::new(EducationInstitution {})),
+        publisher: Some(Box::new(EducationInstitution {
+            entity_id: "institution:source:document:test:publisher".to_owned(),
+            ror: None,
+        })),
         venue: Some(Box::new(Journal {
+            entity_id: "publication-venue:source:document:test:venue".to_owned(),
             venue_name: Some("Nature".to_owned()),
+            issn: None,
         })),
         work: Box::new(ResearchPaper {
+            entity_id: "document:doi:10.1038/s41586-020-2649-2".to_owned(),
             pdf_hash: None,
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
@@ -215,11 +235,11 @@ fn publication_uses_trait_object_entity_participants() {
     assert_eq!(
         serialized,
         json!({
-            "publisher": {"type": "education-institution", "attrs": {}},
-            "venue": {"type": "journal", "attrs": {"venue-name": "Nature"}},
+            "publisher": {"type": "education-institution", "attrs": {"entity-id": "institution:source:document:test:publisher"}},
+            "venue": {"type": "journal", "attrs": {"entity-id": "publication-venue:source:document:test:venue", "venue-name": "Nature"}},
             "work": {
                 "type": "research-paper",
-                "attrs": {"doi": "10.1038/s41586-020-2649-2"}
+                "attrs": {"entity-id": "document:doi:10.1038/s41586-020-2649-2", "doi": "10.1038/s41586-020-2649-2"}
             },
             "version-number": "version-of-record",
             "publication-date": "2020-08-26T00:00:00Z"
@@ -236,6 +256,7 @@ fn publication_event_subtypes_carry_their_schema_type() {
         publisher: None,
         venue: None,
         work: Box::new(ResearchPaper {
+            entity_id: "document:doi:10.1038/s41586-020-2649-2".to_owned(),
             pdf_hash: None,
             title: None,
             abstract_text: None,
@@ -255,7 +276,7 @@ fn publication_event_subtypes_carry_their_schema_type() {
             "type": "submission",
             "work": {
                 "type": "research-paper",
-                "attrs": {"doi": "10.1038/s41586-020-2649-2"}
+                "attrs": {"entity-id": "document:doi:10.1038/s41586-020-2649-2", "doi": "10.1038/s41586-020-2649-2"}
             },
             "submission-date": "2020-01-01T00:00:00Z",
             "submission-note": "Received: 2020-01-01"
@@ -270,14 +291,14 @@ fn unspecified_relation_roles_are_optional() {
     let authorship: Authorship = serde_json::from_value(json!({
         "authored-work": {
             "type": "book",
-            "attrs": {"isbn": "978-0-123456-47-3"}
+            "attrs": {"entity-id": "document:isbn:9780123456473", "isbn": "978-0-123456-47-3"}
         }
     }))
     .unwrap();
     let publication: Publication = serde_json::from_value(json!({
         "work": {
             "type": "research-paper",
-            "attrs": {"doi": "10.1038/s41586-020-2649-2"}
+            "attrs": {"entity-id": "document:doi:10.1038/s41586-020-2649-2", "doi": "10.1038/s41586-020-2649-2"}
         },
         "publication-date": "2020-08-26T00:00:00Z"
     }))
@@ -303,16 +324,23 @@ fn unspecified_relation_roles_are_optional() {
 
 #[test]
 fn empty_schema_entities_preserve_empty_attribute_maps() {
-    let institution = InstitutionEntity::Institution(Institution {});
-    let venue = PublicationVenue::Conference(Conference { venue_name: None });
+    let institution = InstitutionEntity::Institution(Institution {
+        entity_id: "institution:source:document:test:institution".to_owned(),
+        ror: None,
+    });
+    let venue = PublicationVenue::Conference(Conference {
+        entity_id: "publication-venue:source:document:test:conference".to_owned(),
+        venue_name: None,
+        issn: None,
+    });
 
     assert_eq!(
         serde_json::to_value(institution).unwrap(),
-        json!({"type": "institution", "attrs": {}})
+        json!({"type": "institution", "attrs": {"entity-id": "institution:source:document:test:institution"}})
     );
     assert_eq!(
         serde_json::to_value(venue).unwrap(),
-        json!({"type": "conference", "attrs": {}})
+        json!({"type": "conference", "attrs": {"entity-id": "publication-venue:source:document:test:conference"}})
     );
 }
 
@@ -334,7 +362,7 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
                         <surname>Lovelace</surname>
                       </persName>
                       <email>ada@example.org</email>
-                      <idno type="ORCID">0000-0000-0000-0000</idno>
+                      <idno type="ORCID">0000-0002-1825-0097</idno>
                       <affiliation key="aff0">
                         <orgName type="institution">Analytical Engine Institute</orgName>
                         <address><settlement>London</settlement><country>United Kingdom</country></address>
@@ -354,17 +382,25 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
           </text>
         </TEI>
         "#,
-        "paper-hash",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     )
     .unwrap();
 
-    assert_eq!(model.entities.len(), 1);
+    assert_eq!(model.entities.len(), 2);
     assert!(matches!(
         &model.entities[0],
         Entity::Person(PersonEntity::Person(Person {
             given_name: Some(given_name),
             family_name: Some(family_name),
+            ..
         })) if given_name == "Ada" && family_name == "Lovelace"
+    ));
+    assert!(matches!(
+        &model.entities[1],
+        Entity::Institution(InstitutionEntity::Institution(Institution {
+            ror: None,
+            ..
+        }))
     ));
     assert_eq!(model.relations.len(), 3);
     assert!(matches!(&model.relations[0], Relation::Contribution(_)));
@@ -390,20 +426,108 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
 
     let document = serde_json::to_value(&model.document).unwrap();
     assert_eq!(document["type"], "research-paper");
-    assert_eq!(document["attrs"]["pdf-hash"], "paper-hash");
+    assert_eq!(
+        document["attrs"]["pdf-hash"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
     assert_eq!(document["attrs"]["title"], "A study of energy poverty");
     assert_eq!(document["attrs"]["abstract-text"], "An abstract.");
     assert!(document.get("chunks").is_none());
 
+    assert!(model.document.typeql_insert_statement("entity").contains(
+        ", has pdf-hash \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+    ));
+    let identity = model.document.typeql_identity_pattern("entity");
+    assert!(identity.contains("isa research-paper, has entity-id"));
+    assert!(!identity.contains("pdf-hash"));
     assert!(
         model
             .document
-            .typeql_insert_statement("entity")
-            .contains(", has pdf-hash \"paper-hash\"")
+            .typeql_metadata_statements()
+            .iter()
+            .any(|statement| statement.contains("pdf-hash"))
     );
+    let authorship = model.relations.first().unwrap().typeql_insert_statement();
+    assert!(authorship.contains("isa person, has entity-id"));
+    assert!(authorship.contains("isa research-paper, has entity-id"));
+    assert!(!authorship.contains("given-name"));
+    assert!(!authorship.contains("title"));
+}
+
+#[test]
+fn tei_parser_extracts_citations_from_back_matter() {
+    let model = tei::parse_with_pdf_hash(
+        r#"
+        <TEI>
+          <teiHeader>
+            <fileDesc>
+              <titleStmt><title type="main">A citing paper</title></titleStmt>
+              <sourceDesc><biblStruct><analytic/></biblStruct></sourceDesc>
+            </fileDesc>
+          </teiHeader>
+          <text>
+            <back>
+              <div type="references">
+                <listBibl>
+                  <biblStruct xml:id="ref-1">
+                    <analytic><title>A cited paper</title></analytic>
+                    <monogr><idno type="DOI">10.1234/cited</idno></monogr>
+                  </biblStruct>
+                  <biblStruct type="book" xml:id="ref-2">
+                    <monogr>
+                      <title>A cited book</title>
+                      <idno type="ISBN">978-0-306-40615-7</idno>
+                    </monogr>
+                  </biblStruct>
+                </listBibl>
+              </div>
+            </back>
+          </text>
+        </TEI>
+        "#,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+    .unwrap();
+
+    assert_eq!(model.entities.len(), 2);
+    assert!(matches!(
+        &model.entities[0],
+        Entity::Document(Document::ResearchPaper(ResearchPaper {
+            title: Some(title),
+            doi: Some(doi),
+            ..
+        })) if title == "A cited paper" && doi == "10.1234/cited"
+    ));
+    assert!(matches!(
+        &model.entities[1],
+        Entity::Document(Document::Book(Book {
+            title: Some(title),
+            isbn: Some(isbn),
+            ..
+        })) if title == "A cited book" && isbn == "9780306406157"
+    ));
+
+    assert_eq!(model.relations.len(), 2);
+    for relation in &model.relations {
+        let Relation::Citation(Citation { citing, cited }) = relation else {
+            panic!("expected citation relation");
+        };
+        let citing_value = serde_json::to_value(citing).unwrap();
+        assert_eq!(
+            citing_value["title"], "A citing paper",
+            "serialized citing work: {citing_value}"
+        );
+        assert!(serde_json::to_value(cited).unwrap().is_object());
+    }
 }
 
 #[test]
 fn tei_parser_rejects_responses_without_model_data() {
-    assert!(tei::parse_with_pdf_hash("<TEI/>", "paper-hash").is_err());
+    assert!(
+        tei::parse_with_pdf_hash(
+            "<TEI/>",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .is_err()
+    );
 }

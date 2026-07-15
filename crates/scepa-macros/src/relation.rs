@@ -74,7 +74,7 @@ fn relation_fields(fields: &Fields) -> syn::Result<(Vec<TokenStream>, Vec<TokenS
                     let role_index = roles.len();
                     query.push_str(&format!(
                         "  {};\n",
-                        entity.typeql_insert_statement(&format!("role_{role_index}")),
+                        entity.typeql_identity_pattern(&format!("role_{role_index}")),
                     ));
                     roles.push(format!("{}: $role_{role_index}", #label));
                 }
@@ -86,7 +86,7 @@ fn relation_fields(fields: &Fields) -> syn::Result<(Vec<TokenStream>, Vec<TokenS
                     "  {};\n",
                     self.#field_ident
                         .as_ref()
-                        .typeql_insert_statement(&format!("role_{role_index}")),
+                        .typeql_identity_pattern(&format!("role_{role_index}")),
                 ));
                 roles.push(format!("{}: $role_{role_index}", #label));
             });

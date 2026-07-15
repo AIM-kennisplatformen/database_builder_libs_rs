@@ -16,6 +16,7 @@ pub enum Document {
 #[typedb_entity]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Book {
+    pub entity_id: String,
     pub pdf_hash: Option<String>,
     pub title: Option<String>,
     pub abstract_text: Option<String>,
@@ -35,6 +36,7 @@ impl PublicationWork for Book {}
 #[typedb_entity]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct ResearchPaper {
+    pub entity_id: String,
     pub pdf_hash: Option<String>,
     pub title: Option<String>,
     pub abstract_text: Option<String>,
@@ -53,6 +55,7 @@ impl PublicationWork for ResearchPaper {}
 #[typedb_entity]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Report {
+    pub entity_id: String,
     pub pdf_hash: Option<String>,
     pub title: Option<String>,
     pub abstract_text: Option<String>,

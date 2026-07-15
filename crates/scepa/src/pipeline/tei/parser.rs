@@ -3,18 +3,23 @@ use rootcause::{prelude::Report, report};
 
 use crate::{
     domain::DocumentWithChunks,
+    identity::{self, DocumentKind},
     models::{
         chunk::{Abstract, Chunk, Figure, Image, Text},
         entities::{
             Entity,
             document::{Document as TypedbDocument, ResearchPaper},
+            institution::{Institution, InstitutionEntity},
             person::{Person, PersonEntity},
+            publication_venue::{Journal, PublicationVenue},
         },
         relations::{
             Relation,
+            citation::Citation,
             contribution::{Authorship, Contribution, Work as ContributionWork},
             publication_event::{
-                Acceptance, PublicationEventRelation, Submission, Work as PublicationWork,
+                Acceptance, PublicationEventRelation, Submission, Venue as PublicationVenueRole,
+                Work as PublicationWork,
             },
         },
     },
@@ -55,14 +60,33 @@ fn parse_with_optional_pdf_hash(
         })
         .map(text);
     let abstract_text = abstract_node.map(text);
-    let doi = source.and_then(|node| identifier(node, "DOI"));
+    let doi = source
+        .and_then(|node| identifier(node, "DOI"))
+        .map(|value| identity::normalize_doi(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let pdf_hash = pdf_hash
+        .map(|value| identity::normalize_pdf_hash(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let document_id = identity::document_id(
+        DocumentKind::ResearchPaper,
+        doi.as_deref(),
+        pdf_hash.as_deref(),
+        None,
+        None,
+    )
+    .map_err(|error| report!("{error}"))?;
     let people = analytic
         .map(|node| {
             children_named(node, "author")
                 .into_iter()
-                .map(person)
-                .collect::<Vec<_>>()
+                .enumerate()
+                .map(|(index, author)| person(author, &document_id, index))
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()
+        .map_err(|error| report!("{error}"))?
         .unwrap_or_default();
     let (submission_date, acceptance_date, submission_note) =
         source.map(article_dates).unwrap_or_default();
@@ -80,6 +104,7 @@ fn parse_with_optional_pdf_hash(
     );
 
     let document = TypedbDocument::ResearchPaper(ResearchPaper {
+        entity_id: document_id.clone(),
         pdf_hash,
         title,
         doi,
@@ -88,6 +113,20 @@ fn parse_with_optional_pdf_hash(
         conflicts: conflicts.clone(),
         contributions: contributions.clone(),
     });
+
+    let venue = source
+        .map(|source| publication_venue(source, &document_id))
+        .transpose()?
+        .flatten();
+    let mut entities = people
+        .clone()
+        .into_iter()
+        .map(Entity::Person)
+        .collect::<Vec<_>>();
+    entities.extend(affiliation_entities(analytic, &document_id)?);
+    if let Some(venue) = &venue {
+        entities.push(Entity::PublicationVenue(venue.clone()));
+    }
 
     let mut relations = people
         .iter()
@@ -98,12 +137,31 @@ fn parse_with_optional_pdf_hash(
             }))
         })
         .collect::<Vec<_>>();
+    let has_people = !people.is_empty();
+    for (index, reference) in back
+        .into_iter()
+        .flat_map(|node| node.descendants_named("biblStruct"))
+        .enumerate()
+    {
+        let reference_id = reference
+            .attributes
+            .get("id")
+            .cloned()
+            .unwrap_or_else(|| format!("reference-{index}"));
+        let cited = cited_document(reference, &document_id, &reference_id)?;
+        let cited_work = contribution_work(&cited);
+        entities.push(Entity::Document(cited));
+        relations.push(Relation::Citation(Citation {
+            citing: contribution_work(&document),
+            cited: cited_work,
+        }));
+    }
 
     if submission_date.is_some() || submission_note.is_some() {
         relations.push(Relation::PublicationEvent(
             PublicationEventRelation::Submission(Submission {
                 publisher: None,
-                venue: None,
+                venue: venue.as_ref().map(venue_value),
                 work: publication_work(&document),
                 submission_date,
                 submission_note,
@@ -114,7 +172,7 @@ fn parse_with_optional_pdf_hash(
         relations.push(Relation::PublicationEvent(
             PublicationEventRelation::Acceptance(Acceptance {
                 publisher: None,
-                venue: None,
+                venue: venue.as_ref().map(venue_value),
                 work: publication_work(&document),
                 acceptance_date,
             }),
@@ -124,12 +182,7 @@ fn parse_with_optional_pdf_hash(
     let TypedbDocument::ResearchPaper(document_data) = &document else {
         unreachable!("TEI parser creates research paper documents")
     };
-    if !has_model_data(
-        document_data,
-        !people.is_empty(),
-        !relations.is_empty(),
-        &chunks,
-    ) {
+    if !has_model_data(document_data, has_people, !relations.is_empty(), &chunks) {
         return Err(report!(
             "GROBID response contained no data that fits the domain model"
         ));
@@ -137,7 +190,7 @@ fn parse_with_optional_pdf_hash(
 
     Ok(DocumentWithChunks {
         document,
-        entities: people.into_iter().map(Entity::Person).collect(),
+        entities,
         relations,
         chunks,
     })
@@ -276,17 +329,207 @@ fn push_image_chunk(chunks: &mut Vec<Chunk>, section_heading: Option<&str>) {
     }));
 }
 
-fn person(node: &Node) -> PersonEntity {
+fn person(
+    node: &Node,
+    source_document_id: &str,
+    author_index: usize,
+) -> Result<PersonEntity, Report> {
     let name = child(node, "persName");
-    PersonEntity::Person(Person {
+    let orcid = identifier(node, "ORCID")
+        .map(|value| identity::normalize_orcid(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let entity_id = identity::person_id(orcid.as_deref(), source_document_id, author_index)
+        .map_err(|error| report!("{error}"))?;
+    Ok(PersonEntity::Person(Person {
+        entity_id,
         given_name: name.and_then(|name| child(name, "forename")).map(text),
         family_name: name.and_then(|name| child(name, "surname")).map(text),
-    })
+        orcid,
+    }))
 }
 
 fn person_value(person: &PersonEntity) -> Person {
     match person {
         PersonEntity::Person(person) => person.clone(),
+    }
+}
+
+fn affiliation_entities(
+    analytic: Option<&Node>,
+    source_document_id: &str,
+) -> Result<Vec<Entity>, Report> {
+    let mut entities = Vec::new();
+    let mut affiliation_index = 0;
+    for author in analytic
+        .into_iter()
+        .flat_map(|node| children_named(node, "author"))
+    {
+        for affiliation in author.descendants_named("affiliation") {
+            let affiliation_key = affiliation
+                .attributes
+                .get("key")
+                .cloned()
+                .unwrap_or_else(|| {
+                    let key = format!("affiliation-{affiliation_index}");
+                    affiliation_index += 1;
+                    key
+                });
+            let ror = identifier(affiliation, "ROR")
+                .map(|value| identity::normalize_ror(&value))
+                .transpose()
+                .map_err(|error| report!("{error}"))?;
+            let entity_id =
+                identity::institution_id(ror.as_deref(), source_document_id, &affiliation_key)
+                    .map_err(|error| report!("{error}"))?;
+            entities.push(Entity::Institution(InstitutionEntity::Institution(
+                Institution { entity_id, ror },
+            )));
+        }
+    }
+    Ok(entities)
+}
+
+fn publication_venue(
+    source: &Node,
+    source_document_id: &str,
+) -> Result<Option<PublicationVenue>, Report> {
+    let monograph = child(source, "monogr");
+    let venue_name = monograph
+        .and_then(|node| child(node, "title"))
+        .map(text)
+        .filter(|value| !value.is_empty());
+    let issn = identifier(source, "ISSN")
+        .or_else(|| monograph.and_then(|node| identifier(node, "ISSN")))
+        .map(|value| identity::normalize_issn(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    if venue_name.is_none() && issn.is_none() {
+        return Ok(None);
+    }
+
+    let entity_id = identity::venue_id(issn.as_deref(), source_document_id, "primary")
+        .map_err(|error| report!("{error}"))?;
+    let kind = source
+        .attributes
+        .get("type")
+        .map(String::as_str)
+        .unwrap_or_default();
+    if kind.eq_ignore_ascii_case("conference") {
+        Ok(Some(PublicationVenue::Conference(
+            crate::models::entities::publication_venue::Conference {
+                entity_id,
+                venue_name,
+                issn,
+            },
+        )))
+    } else {
+        Ok(Some(PublicationVenue::Journal(Journal {
+            entity_id,
+            venue_name,
+            issn,
+        })))
+    }
+}
+
+fn venue_value(venue: &PublicationVenue) -> Box<dyn PublicationVenueRole> {
+    match venue {
+        PublicationVenue::Journal(venue) => Box::new(venue.clone()),
+        PublicationVenue::Conference(venue) => Box::new(venue.clone()),
+    }
+}
+
+fn cited_document(
+    reference: &Node,
+    source_document_id: &str,
+    reference_id: &str,
+) -> Result<TypedbDocument, Report> {
+    let analytic = child(reference, "analytic");
+    let monograph = child(reference, "monogr");
+    let title = analytic
+        .and_then(|node| child(node, "title"))
+        .or_else(|| monograph.and_then(|node| child(node, "title")))
+        .map(text)
+        .filter(|value| !value.is_empty());
+    let doi = identifier(reference, "DOI")
+        .map(|value| identity::normalize_doi(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let isbn = identifier(reference, "ISBN")
+        .map(|value| identity::normalize_isbn(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let issn = identifier(reference, "ISSN")
+        .map(|value| identity::normalize_issn(&value))
+        .transpose()
+        .map_err(|error| report!("{error}"))?;
+    let kind = reference
+        .attributes
+        .get("type")
+        .map(String::as_str)
+        .unwrap_or_default();
+
+    if kind.eq_ignore_ascii_case("book") || (analytic.is_none() && isbn.is_some()) {
+        let entity_id = identity::document_id(
+            DocumentKind::Book,
+            isbn.as_deref(),
+            None,
+            Some(source_document_id),
+            Some(reference_id),
+        )
+        .map_err(|error| report!("{error}"))?;
+        Ok(TypedbDocument::Book(
+            crate::models::entities::document::Book {
+                entity_id,
+                pdf_hash: None,
+                title,
+                abstract_text: None,
+                acknowledgements: None,
+                conflicts: None,
+                contributions: None,
+                isbn,
+                issn,
+            },
+        ))
+    } else if kind.eq_ignore_ascii_case("report") {
+        let entity_id = identity::document_id(
+            DocumentKind::Report,
+            None,
+            None,
+            Some(source_document_id),
+            Some(reference_id),
+        )
+        .map_err(|error| report!("{error}"))?;
+        Ok(TypedbDocument::Report(
+            crate::models::entities::document::Report {
+                entity_id,
+                pdf_hash: None,
+                title,
+                abstract_text: None,
+                acknowledgements: None,
+                conflicts: None,
+                contributions: None,
+            },
+        ))
+    } else {
+        let entity_id = identity::document_id(
+            DocumentKind::ResearchPaper,
+            doi.as_deref(),
+            None,
+            Some(source_document_id),
+            Some(reference_id),
+        )
+        .map_err(|error| report!("{error}"))?;
+        Ok(TypedbDocument::ResearchPaper(ResearchPaper {
+            entity_id,
+            pdf_hash: None,
+            title,
+            abstract_text: None,
+            acknowledgements: None,
+            conflicts: None,
+            contributions: None,
+            doi,
+        }))
     }
 }
 

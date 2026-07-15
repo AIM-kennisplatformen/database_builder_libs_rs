@@ -47,14 +47,62 @@ pub(crate) fn generate_enum_delegation_from_data(
         let query_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
+                    <_ as crate::models::entities::TypeDbEntity>::typeql_type(value),
+            }
+        });
+        let id_arms = variant_idents.iter().map(|variant_ident| {
+            quote! {
+                Self::#variant_ident(value) =>
+                    <_ as crate::models::entities::TypeDbEntity>::entity_id(value),
+            }
+        });
+        let identity_arms = variant_idents.iter().map(|variant_ident| {
+            quote! {
+                Self::#variant_ident(value) =>
+                    <_ as crate::models::entities::TypeDbEntity>::typeql_identity_pattern(value, variable),
+            }
+        });
+        let metadata_arms = variant_idents.iter().map(|variant_ident| {
+            quote! {
+                Self::#variant_ident(value) =>
+                    <_ as crate::models::entities::TypeDbEntity>::typeql_metadata_statements(value),
+            }
+        });
+        let insert_arms = variant_idents.iter().map(|variant_ident| {
+            quote! {
+                Self::#variant_ident(value) =>
                     <_ as crate::models::entities::TypeDbEntity>::typeql_insert_statement(value, variable),
             }
         });
         quote! {
             impl crate::models::entities::TypeDbEntity for #ident {
-                fn typeql_insert_statement(&self, variable: &str) -> String {
+                fn typeql_type(&self) -> &'static str {
                     match self {
                         #(#query_arms)*
+                    }
+                }
+
+                fn entity_id(&self) -> &str {
+                    match self {
+                        #(#id_arms)*
+                    }
+                }
+
+                fn typeql_identity_pattern(&self, variable: &str) -> String {
+                    match self {
+                        #(#identity_arms)*
+                    }
+                }
+
+                fn typeql_metadata_statements(&self) -> Vec<String> {
+                    match self {
+                        #(#metadata_arms)*
+                    }
+                }
+
+                fn typeql_insert_statement(&self, variable: &str) -> String {
+                    match self {
+                        #(#insert_arms)*
                     }
                 }
             }

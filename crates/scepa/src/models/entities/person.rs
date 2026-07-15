@@ -12,8 +12,10 @@ pub enum PersonEntity {
 #[typedb_entity]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Person {
+    pub entity_id: String,
     pub given_name: Option<String>,
     pub family_name: Option<String>,
+    pub orcid: Option<String>,
 }
 
 #[typedb_relation_role(name = "person")]

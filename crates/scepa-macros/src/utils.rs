@@ -7,6 +7,10 @@ pub(crate) fn is_option_of(field: &syn::Field, name: &str) -> bool {
     type_path_ends_with(inner, name)
 }
 
+pub(crate) fn is_type(field: &syn::Field, name: &str) -> bool {
+    type_path_ends_with(&field.ty, name)
+}
+
 pub(crate) fn is_option(ty: &Type) -> bool {
     let Type::Path(ty) = ty else {
         return false;
