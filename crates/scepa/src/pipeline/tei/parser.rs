@@ -23,6 +23,20 @@ use crate::{
 use super::tree::{Node, child, children_named, descendant, parse_tree, text};
 
 pub fn parse(xml: &str) -> Result<DocumentWithChunks, Report> {
+    parse_with_optional_pdf_hash(xml, None)
+}
+
+pub fn parse_with_pdf_hash(
+    xml: &str,
+    pdf_hash: impl Into<String>,
+) -> Result<DocumentWithChunks, Report> {
+    parse_with_optional_pdf_hash(xml, Some(pdf_hash.into()))
+}
+
+fn parse_with_optional_pdf_hash(
+    xml: &str,
+    pdf_hash: Option<String>,
+) -> Result<DocumentWithChunks, Report> {
     let root = parse_tree(xml)?;
     let header = descendant(&root, "teiHeader");
     let body = descendant(&root, "body");
@@ -57,6 +71,7 @@ pub fn parse(xml: &str) -> Result<DocumentWithChunks, Report> {
     let contributions = back.and_then(|node| back_matter(node, "contribution"));
 
     let document = TypedbDocument::ResearchPaper(ResearchPaper {
+        pdf_hash,
         title,
         doi,
         abstract_text: abstract_text.clone(),

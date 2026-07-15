@@ -3,7 +3,7 @@ use serde_json::json;
 
 use super::chunk::Chunk;
 use super::entities::{
-    Entity,
+    Entity, TypeDbEntity,
     document::{Book, Document, ResearchPaper},
     institution::{EducationInstitution, Institution, InstitutionEntity},
     person::{Person, PersonEntity},
@@ -19,6 +19,7 @@ use crate::pipeline::tei;
 #[test]
 fn document_serializes_to_its_deserialization_envelope() {
     let document = Document::ResearchPaper(ResearchPaper {
+        pdf_hash: None,
         title: None,
         doi: Some("10.1038/s41586-020-2649-2".to_owned()),
         abstract_text: None,
@@ -123,6 +124,7 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             family_name: Some("Curie".to_owned()),
         })),
         authored_work: Some(Box::new(ResearchPaper {
+            pdf_hash: None,
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
             abstract_text: None,
@@ -137,6 +139,7 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             family_name: Some("Curie".to_owned()),
         })),
         reviewed_work: Some(Box::new(Book {
+            pdf_hash: None,
             title: None,
             abstract_text: None,
             acknowledgements: None,
@@ -196,6 +199,7 @@ fn publication_uses_trait_object_entity_participants() {
             venue_name: Some("Nature".to_owned()),
         })),
         work: Box::new(ResearchPaper {
+            pdf_hash: None,
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
             abstract_text: None,
@@ -232,6 +236,7 @@ fn publication_event_subtypes_carry_their_schema_type() {
         publisher: None,
         venue: None,
         work: Box::new(ResearchPaper {
+            pdf_hash: None,
             title: None,
             abstract_text: None,
             acknowledgements: None,
@@ -313,7 +318,7 @@ fn empty_schema_entities_preserve_empty_attribute_maps() {
 
 #[test]
 fn tei_parser_builds_type_db_entities_and_chunks_directly() {
-    let model = tei::parse(
+    let model = tei::parse_with_pdf_hash(
         r#"
         <TEI>
           <teiHeader>
@@ -349,6 +354,7 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
           </text>
         </TEI>
         "#,
+        "paper-hash",
     )
     .unwrap();
 
@@ -384,7 +390,15 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
 
     let document = serde_json::to_value(&model.document).unwrap();
     assert_eq!(document["type"], "research-paper");
+    assert_eq!(document["attrs"]["pdf-hash"], "paper-hash");
     assert_eq!(document["attrs"]["title"], "A study of energy poverty");
     assert_eq!(document["attrs"]["abstract-text"], "An abstract.");
     assert!(document.get("chunks").is_none());
+
+    assert!(
+        model
+            .document
+            .typeql_insert_statement("entity")
+            .contains(", has pdf-hash \"paper-hash\"")
+    );
 }

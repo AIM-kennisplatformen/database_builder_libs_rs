@@ -10,6 +10,7 @@ attribute abstract-text, value string;
 attribute acknowledgements, value string;
 attribute conflicts, value string;
 attribute contributions, value string;
+attribute pdf-hash, value string;
 
 # --- Publishing lifecycle ---
 attribute submission-date, value datetime;
@@ -32,6 +33,7 @@ entity document @abstract,
     owns acknowledgements,
     owns conflicts,
     owns contributions,
+    owns pdf-hash,
     plays contribution:work,
     plays authorship:authored-work,
     plays peer-review:reviewed-work,
