@@ -106,6 +106,10 @@ async fn async_main(
     typedb_config: TypeDbConfig,
     retry: bool,
 ) -> Result<(), Report> {
+    if !retry {
+        clear_retry_pdfs(Path::new(RETRY_SOURCES_PATH))?;
+    }
+
     let pdf_source_dir = PathBuf::from(if retry {
         RETRY_SOURCES_PATH
     } else {
@@ -264,6 +268,41 @@ async fn remove_retry_pdf(pdf_path: &Path) -> Result<(), Report> {
         "failed to remove retry PDF `{}`",
         pdf_path.display()
     ))?;
+    Ok(())
+}
+
+fn clear_retry_pdfs(dir: &Path) -> Result<(), Report> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .context(format!(
+                    "failed to read retry PDF directory `{}`",
+                    dir.display()
+                ))
+                .map_err(Into::into);
+        }
+    };
+
+    for entry in entries {
+        let entry = entry.context(format!("failed to read entry in `{}`", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .context(format!("failed to read file type for `{}`", path.display()))?;
+
+        if file_type.is_dir() {
+            fs::remove_dir_all(&path).context(format!(
+                "failed to remove retry PDF directory `{}`",
+                path.display()
+            ))?;
+        } else {
+            fs::remove_file(&path)
+                .context(format!("failed to remove retry PDF `{}`", path.display()))?;
+        }
+    }
+
     Ok(())
 }
 
