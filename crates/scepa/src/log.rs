@@ -11,6 +11,15 @@ use tracing_subscriber::{
 
 const LOG_DIR: &str = "log";
 const LOG_FILE: &str = "log/pipeline.log";
+const WORKSPACE_TARGETS: &str = "cli=trace,scepa_rs=trace,scepa_macros=trace";
+
+pub fn clear_log_dir() -> Result<(), Report> {
+    match fs::remove_dir_all(LOG_DIR) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
 
 pub fn setup_tracing(console_writer: Box<dyn Write + Send>, rust_log: &str) -> Result<(), Report> {
     fs::create_dir_all(LOG_DIR)?;
@@ -34,6 +43,10 @@ pub fn setup_tracing(console_writer: Box<dyn Write + Send>, rust_log: &str) -> R
         builder.parse_lossy(format!("info,{rust_log}"))
     };
 
+    // Keep dependency logging at the level requested by RUST_LOG, while
+    // retaining every level emitted by this workspace's crates.
+    let file_filter = builder.parse_lossy(WORKSPACE_TARGETS);
+
     let console_layer = fmt::layer()
         .with_target(true)
         .with_file(true)
@@ -49,7 +62,8 @@ pub fn setup_tracing(console_writer: Box<dyn Write + Send>, rust_log: &str) -> R
         .with_line_number(true)
         // ANSI must be disabled as normal text editors do not support ANSI characters
         .with_ansi(false)
-        .with_writer(file);
+        .with_writer(file)
+        .with_filter(file_filter);
 
     tracing_subscriber::registry()
         // file_layer must be added before console_layer to prevent ANSI characters from leaking

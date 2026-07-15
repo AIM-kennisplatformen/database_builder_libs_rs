@@ -11,6 +11,7 @@ use rootcause::report_collection::ReportCollection;
 use rootcause_backtrace::BacktraceCollector;
 use scepa_rs::{
     Config, log,
+    pipeline::error::ExpectedError,
     pipeline::{self, PipelineSources},
     typedb::{TypeDbConfig, TypeDbDriver},
 };
@@ -24,6 +25,9 @@ const SOURCES_PATH: &str = "sources/pdfs";
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Env {
+    #[arg(long, env = "CLEAR_LOG", default_value_t = false)]
+    clear_log: bool,
+
     #[arg(long, env = "SAVE_DEBUG_ARTIFACTS", default_value_t = false)]
     save_debug_artifacts: bool,
 
@@ -69,6 +73,10 @@ fn main() -> Result<(), Report> {
     dotenvy::dotenv().expect("Failed to load .env file");
 
     let env = Env::try_parse().context("Failed to parse .env file")?;
+    if env.clear_log {
+        log::clear_log_dir().context("Failed to clear log directory")?;
+    }
+
     let typedb_config = TypeDbConfig::new(
         env.typedb_address.clone(),
         env.typedb_database.clone(),
@@ -91,6 +99,7 @@ fn main() -> Result<(), Report> {
 async fn async_main(config: Config, typedb_config: TypeDbConfig) -> Result<(), Report> {
     let pdf_source_dir = PathBuf::from(SOURCES_PATH);
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
+    pipeline::write_duplicate_file_report(&pdf_paths).await?;
     let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
     let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
 
@@ -109,13 +118,17 @@ async fn async_main(config: Config, typedb_config: TypeDbConfig) -> Result<(), R
             .await
             .context("failed to connect to TypeDB")?,
     );
-    let sources = PipelineSources {
-        grobid: pipeline::source::grobid::GrobidClient::new(
+    let sources = PipelineSources::new(
+        pipeline::source::grobid::GrobidClient::new(
             config.grobid_url.clone(),
             reqwest::Client::new(),
         ),
-        typedb: Arc::clone(&typedb),
-    };
+        Arc::new(pipeline::storage::LocalPdfStorage::new(
+            pipeline::PARSED_FILES_ARTIFACTS_DIR,
+        )),
+        Arc::clone(&typedb),
+        pipeline::KnownFailures::load_default()?,
+    );
 
     let result = run_workers(Arc::new(config), pdf_paths, progress, sources).await;
     if let Ok(typedb) = Arc::try_unwrap(typedb) {
@@ -145,6 +158,7 @@ async fn run_workers(
 
         workers.push(tokio::spawn(async move {
             let mut worker_errors = Vec::new();
+            let mut expected_failures = 0;
 
             for pdf_path in worker_paths {
                 let result = pipeline::run(
@@ -157,6 +171,10 @@ async fn run_workers(
                 .await;
 
                 if let Err(error) = result {
+                    if error.downcast_current_context::<ExpectedError>().is_some() {
+                        expected_failures += 1;
+                        continue;
+                    }
                     let error =
                         error.context(format!("failed to process PDF `{}`", pdf_path.display()));
                     tracing::error!(
@@ -169,15 +187,22 @@ async fn run_workers(
                 }
             }
 
-            worker_errors
+            (worker_errors, expected_failures)
         }));
     }
 
     let mut worker_errors = Vec::new();
+    let mut expected_failures = 0;
     for worker in workers {
-        worker_errors.extend(worker.await.context("worker task failed")?);
+        let (errors, worker_expected_failures) = worker.await.context("worker task failed")?;
+        worker_errors.extend(errors);
+        expected_failures += worker_expected_failures;
     }
     progress.finish();
+    tracing::info!(
+        "expected failures: {expected_failures} / {}",
+        pdf_paths.len()
+    );
 
     if worker_errors.is_empty() {
         tracing::info!(processed_files = pdf_paths.len(), "pipeline finished");
