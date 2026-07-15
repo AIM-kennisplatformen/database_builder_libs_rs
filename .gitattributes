@@ -1,0 +1,6 @@
+known_failures.json -merge
+Cargo.lock -merge
+
+# Database exports cannot be merged due to possible data corruption.
+data.typedb
+schema.typeql

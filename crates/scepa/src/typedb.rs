@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use futures_util::StreamExt;
 use rootcause::prelude::{Report, ResultExt};
@@ -11,7 +14,7 @@ use typedb_driver::{
 pub const DOMAIN_SCHEMA: &str = include_str!("../../../domain.tql");
 
 const EXPORT_MAX_ATTEMPTS: usize = 5;
-const EXPORT_RETRY_BASE_DELAY: Duration = Duration::from_millis(100);
+const EXPORT_RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypeDbConfig {
@@ -131,6 +134,43 @@ impl Clone for TypeDbDriver<Connected> {
 }
 
 impl TypeDbDriver<Connected> {
+    pub async fn count_matches(&self, query: &str) -> Result<usize, Report> {
+        let transaction = self
+            .state
+            .driver
+            .transaction(&self.state.database, TransactionType::Read)
+            .await
+            .context("failed to open a TypeDB read transaction")?;
+        let answer = transaction
+            .query(query)
+            .await
+            .context(format!("failed to execute TypeDB count query `{query}`"))?;
+        let count = match answer {
+            QueryAnswer::Ok(_) => 0,
+            QueryAnswer::ConceptRowStream(_, mut rows) => {
+                let mut count = 0;
+                while let Some(row) = rows.next().await {
+                    row.context(format!("failed to read TypeDB count query `{query}`"))?;
+                    count += 1;
+                }
+                count
+            }
+            QueryAnswer::ConceptDocumentStream(_, mut documents) => {
+                let mut count = 0;
+                while let Some(document) = documents.next().await {
+                    document.context(format!("failed to read TypeDB count query `{query}`"))?;
+                    count += 1;
+                }
+                count
+            }
+        };
+        transaction
+            .close()
+            .await
+            .context("failed to close the TypeDB read transaction")?;
+        Ok(count)
+    }
+
     pub async fn export_queries(&self, queries: Vec<String>) -> Result<(), Report> {
         for attempt in 1..=EXPORT_MAX_ATTEMPTS {
             match self.export_queries_once(&queries).await {
@@ -162,6 +202,7 @@ impl TypeDbDriver<Connected> {
             .await
             .context("failed to open a TypeDB write transaction")?;
 
+        let query_started = Instant::now();
         for query in queries {
             let answer = transaction
                 .query(&query)
@@ -169,6 +210,11 @@ impl TypeDbDriver<Connected> {
                 .context(format!("failed to execute TypeDB query `{query}`"))?;
             drain_answer(answer, query).await?;
         }
+        tracing::info!(
+            query_count = queries.len(),
+            elapsed_ms = query_started.elapsed().as_millis(),
+            "executed TypeDB query batch"
+        );
 
         transaction
             .commit()
