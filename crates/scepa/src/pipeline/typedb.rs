@@ -11,7 +11,10 @@ pub fn typeql_queries(document: &DocumentWithChunks) -> Vec<String> {
 }
 
 fn entity_query<T: TypeDbEntity + ?Sized>(entity: &T) -> String {
-    format!("put {};", entity.typeql_insert_statement("entity"))
+    // Temporarily preserve one TypeDB entity per parsed source document. `put`
+    // treats the attribute pattern as an identity and collapses documents
+    // with the same metadata, which is undesirable while auditing ingestion.
+    format!("insert {};", entity.typeql_insert_statement("entity"))
 }
 
 fn relation_query<T: TypeDbRelation + ?Sized>(relation: &T) -> String {
