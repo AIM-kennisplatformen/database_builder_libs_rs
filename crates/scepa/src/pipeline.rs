@@ -37,7 +37,8 @@ pub const PARSED_FILES_ARTIFACTS_DIR: &str = "log/parsed_files";
 pub const RAW_TEI_ARTIFACTS_DIR: &str = "log/raw_tei";
 pub const PARSED_TEI_ARTIFACTS_DIR: &str = "log/parsed_tei";
 pub const KNOWN_FAILURES_PATH: &str = "known_failures.json";
-pub const DUPLICATES_PATH: &str = "duplicates.json";
+pub const FIXED_FAILURES_PATH: &str = "fixed_failures.json";
+pub const FAILED_PDFS_DIR: &str = "sources/retry_pdfs";
 
 #[derive(Debug, Clone, Deserialize, Eq, Hash, Ord, PartialEq, Serialize, PartialOrd)]
 struct KnownFailure {
@@ -52,12 +53,26 @@ struct KnownFailure {
 #[derive(Clone)]
 pub struct KnownFailures {
     path: PathBuf,
-    failures: Arc<Mutex<HashSet<KnownFailure>>>,
+    fixed_path: PathBuf,
+    state: Arc<Mutex<FailureState>>,
+}
+
+struct FailureState {
+    failures: HashSet<KnownFailure>,
+    fixed_failures: HashSet<KnownFailure>,
 }
 
 impl KnownFailures {
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, Report> {
         let path = path.into();
+        let fixed_path = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(FIXED_FAILURES_PATH);
+        Self::load_paths(path, fixed_path)
+    }
+
+    fn load_paths(path: PathBuf, fixed_path: PathBuf) -> Result<Self, Report> {
         let failures = match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).context(format!(
                 "failed to parse known failures file \x60{}\x60",
@@ -73,30 +88,53 @@ impl KnownFailures {
                     .map_err(Into::into);
             }
         };
+        let fixed_failures = match fs::read_to_string(&fixed_path) {
+            Ok(contents) => serde_json::from_str(&contents).context(format!(
+                "failed to parse fixed failures file \x60{}\x60",
+                fixed_path.display()
+            ))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HashSet::new(),
+            Err(error) => {
+                return Err(error)
+                    .context(format!(
+                        "failed to read fixed failures file \x60{}\x60",
+                        fixed_path.display()
+                    ))
+                    .map_err(Into::into);
+            }
+        };
 
         Ok(Self {
             path,
-            failures: Arc::new(Mutex::new(failures)),
+            fixed_path,
+            state: Arc::new(Mutex::new(FailureState {
+                failures,
+                fixed_failures,
+            })),
         })
     }
 
     pub fn load_default() -> Result<Self, Report> {
-        Self::load(KNOWN_FAILURES_PATH)
+        Self::load_paths(
+            PathBuf::from(KNOWN_FAILURES_PATH),
+            PathBuf::from(FIXED_FAILURES_PATH),
+        )
     }
 
     fn contains(&self, hash: &str, cause: FailureCause) -> Result<bool, Report> {
-        let failures = self
-            .failures
+        let state = self
+            .state
             .lock()
             .map_err(|_| report!("known failures lock was poisoned"))?;
-        Ok(failures
+        Ok(state
+            .failures
             .iter()
             .any(|failure| failure.hash == hash && failure.cause == cause))
     }
 
     fn record(&self, hash: &str, cause: FailureCause, error: String) -> Result<(), Report> {
-        let mut failures = self
-            .failures
+        let mut state = self
+            .state
             .lock()
             .map_err(|_| report!("known failures lock was poisoned"))?;
         let failure = KnownFailure {
@@ -108,7 +146,8 @@ impl KnownFailures {
         // A failure is identified by its PDF and pipeline stage, not by the
         // diagnostic text. This also lets us enrich entries created by an
         // older version that did not persist the error.
-        if let Some(existing) = failures
+        if let Some(existing) = state
+            .failures
             .iter()
             .find(|existing| existing.hash == hash && existing.cause == cause)
             .cloned()
@@ -116,10 +155,10 @@ impl KnownFailures {
             if existing.error.is_some() {
                 return Ok(());
             }
-            failures.remove(&existing);
+            state.failures.remove(&existing);
         }
 
-        let mut values = failures.iter().cloned().collect::<Vec<_>>();
+        let mut values = state.failures.iter().cloned().collect::<Vec<_>>();
         values.push(failure.clone());
         values.sort();
         let contents = serde_json::to_string_pretty(&values)
@@ -128,9 +167,54 @@ impl KnownFailures {
             "failed to write known failures file \x60{}\x60",
             self.path.display()
         ))?;
-        failures.insert(failure);
+        state.failures.insert(failure);
         Ok(())
     }
+
+    fn mark_fixed(&self, hash: &str, cause: FailureCause) -> Result<bool, Report> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| report!("known failures lock was poisoned"))?;
+        let Some(failure) = state
+            .failures
+            .iter()
+            .find(|failure| failure.hash == hash && failure.cause == cause)
+            .cloned()
+        else {
+            return Ok(false);
+        };
+
+        let mut failures = state.failures.clone();
+        failures.remove(&failure);
+        let mut fixed_failures = state.fixed_failures.clone();
+        fixed_failures.insert(failure);
+
+        // Write the archive first. If the second write fails, the known entry
+        // remains on disk and can be moved again on the next run.
+        write_failure_entries(&self.fixed_path, &fixed_failures, "fixed PDF failures")?;
+        write_failure_entries(&self.path, &failures, "known PDF failures")?;
+
+        state.failures = failures;
+        state.fixed_failures = fixed_failures;
+        Ok(true)
+    }
+}
+
+fn write_failure_entries(
+    path: &Path,
+    failures: &HashSet<KnownFailure>,
+    description: &str,
+) -> Result<(), Report> {
+    let mut values = failures.iter().cloned().collect::<Vec<_>>();
+    values.sort();
+    let contents = serde_json::to_string_pretty(&values)
+        .context(format!("failed to serialize {description}"))?;
+    fs::write(path, format!("{contents}\n")).context(format!(
+        "failed to write {description} file \x60{}\x60",
+        path.display()
+    ))?;
+    Ok(())
 }
 
 fn hash_pdf_file(path: &Path) -> Result<String, Report> {
@@ -227,13 +311,24 @@ pub async fn run(
     worker_id: usize,
     sources: PipelineSources,
 ) -> Result<(), Report> {
-    let pdf_hash = hash_pdf_file(pdf_file)?;
+    let pdf_hash = match hash_pdf_file(pdf_file) {
+        Ok(pdf_hash) => pdf_hash,
+        Err(report) => {
+            if config.save_debug_artifacts {
+                preserve_failed_pdf(pdf_file).await;
+            }
+            return Err(report);
+        }
+    };
     let expected_grobid_failure = sources
         .known_failures
         .contains(&pdf_hash, FailureCause::GrobidExtraction)?;
     let expected_tei_failure = sources
         .known_failures
         .contains(&pdf_hash, FailureCause::TeiParsing)?;
+    let expected_typedb_failure = sources
+        .known_failures
+        .contains(&pdf_hash, FailureCause::TypeDbExport)?;
 
     let span = tracing::info_span!(
         "pipeline",
@@ -263,16 +358,7 @@ pub async fn run(
         )
         .await
         {
-            Ok(tei_xml) => {
-                if expected_grobid_failure {
-                    tracing::warn!(
-                        hash = %pdf_hash,
-                        cause = %FailureCause::GrobidExtraction,
-                        "PDF previously expected to fail parsed successfully"
-                    );
-                }
-                tei_xml
-            }
+            Ok(tei_xml) => tei_xml,
             Err(report) => {
                 return Err(classify_failure(
                     &sources.known_failures,
@@ -290,16 +376,7 @@ pub async fn run(
                 progress,
                 worker_id,
             ) {
-                Ok(document) => {
-                    if expected_tei_failure {
-                        tracing::warn!(
-                            hash = %pdf_hash,
-                            cause = %FailureCause::TeiParsing,
-                            "PDF previously expected to fail parsed successfully"
-                        );
-                    }
-                    document
-                }
+                Ok(document) => document,
                 Err(parse_report) => {
                     if parse_report
                         .downcast_current_context::<error::TeiParseFailure>()
@@ -317,7 +394,14 @@ pub async fn run(
             };
             typeql_queries(&document)
         };
-        export_to_typedb(&sources.typedb, queries, progress, worker_id).await?;
+        if let Err(report) = export_to_typedb(&sources.typedb, queries, progress, worker_id).await {
+            return Err(classify_failure(
+                &sources.known_failures,
+                &pdf_hash,
+                FailureCause::TypeDbExport,
+                report,
+            )?);
+        }
 
         tracing::info!("completed PDF processing");
         Ok(())
@@ -325,8 +409,80 @@ pub async fn run(
     .instrument(span)
     .await;
 
+    if result.is_ok() {
+        if expected_grobid_failure {
+            log_fixed_failure(
+                &sources.known_failures,
+                &pdf_hash,
+                FailureCause::GrobidExtraction,
+            );
+        }
+        if expected_tei_failure {
+            log_fixed_failure(&sources.known_failures, &pdf_hash, FailureCause::TeiParsing);
+        }
+        if expected_typedb_failure {
+            log_fixed_failure(
+                &sources.known_failures,
+                &pdf_hash,
+                FailureCause::TypeDbExport,
+            );
+        }
+    } else if config.save_debug_artifacts {
+        preserve_failed_pdf(pdf_file).await;
+    }
     progress.report(ProgressEvent::FileFinished { worker_id });
     result
+}
+
+fn log_fixed_failure(known_failures: &KnownFailures, hash: &str, cause: FailureCause) {
+    match known_failures.mark_fixed(hash, cause) {
+        Ok(true) => tracing::warn!(
+            hash,
+            cause = %cause,
+            "PDF previously expected to fail, but the full pipeline succeeded; moved failure to fixed_failures"
+        ),
+        Ok(false) => {}
+        Err(error) => tracing::error!(
+            hash,
+            cause = %cause,
+            error = ?error,
+            "failed to move fixed PDF failure"
+        ),
+    }
+}
+
+async fn preserve_failed_pdf(pdf_file: &Path) {
+    if let Err(error) = copy_failed_pdf(pdf_file, Path::new(FAILED_PDFS_DIR)).await {
+        tracing::error!(
+            pdf = %pdf_file.display(),
+            error = ?error,
+            "failed to preserve PDF for retry"
+        );
+    }
+}
+
+async fn copy_failed_pdf(pdf_file: &Path, directory: &Path) -> Result<PathBuf, Report> {
+    let file_name = pdf_file.file_name().context(format!(
+        "failed to read file name for {}",
+        pdf_file.display()
+    ))?;
+    let artifact_path = directory.join(file_name);
+
+    tokio::fs::create_dir_all(directory).await.context(format!(
+        "failed to create failed PDF directory `{}`",
+        directory.display()
+    ))?;
+    if pdf_file != artifact_path {
+        tokio::fs::copy(pdf_file, &artifact_path)
+            .await
+            .context(format!(
+                "failed to copy failed PDF `{}` to `{}`",
+                pdf_file.display(),
+                artifact_path.display()
+            ))?;
+    }
+    tracing::debug!(artifact = %artifact_path.display(), "saved failed PDF for retry");
+    Ok(artifact_path)
 }
 
 async fn extract_tei(
@@ -337,16 +493,17 @@ async fn extract_tei(
     progress: &impl Progress,
     worker_id: usize,
 ) -> Result<String, Report> {
+    progress.report(ProgressEvent::Step {
+        worker_id,
+        step: 1,
+        message: Some("extracting TEI XML from Grobid".to_owned()),
+    });
+
     let tei_xml = grobid.extract_pdf_to_tei_xml_with_retry(pdf_file).await?;
 
     if save_debug_artifacts {
         save_hashed_debug_artifact(RAW_TEI_ARTIFACTS_DIR, pdf_hash, ".tei.xml", &tei_xml)?;
     }
-    progress.report(ProgressEvent::Step {
-        worker_id,
-        step: 1,
-        message: Some("extracted TEI XML".to_owned()),
-    });
 
     Ok(tei_xml)
 }
@@ -358,6 +515,12 @@ fn parse_tei(
     progress: &impl Progress,
     worker_id: usize,
 ) -> Result<crate::domain::DocumentWithChunks, Report> {
+    progress.report(ProgressEvent::Step {
+        worker_id,
+        step: 2,
+        message: Some("parsing TEI XML".to_owned()),
+    });
+
     let document = tei::parse_with_pdf_hash(tei_xml, pdf_hash)
         .map_err(|parse_error| parse_error.context(error::TeiParseFailure))?;
     tracing::debug!(
@@ -371,11 +534,6 @@ fn parse_tei(
             .context("failed to serialize parsed TEI as JSON")?;
         save_hashed_debug_artifact(PARSED_TEI_ARTIFACTS_DIR, pdf_hash, ".json", &parsed_tei)?;
     }
-    progress.report(ProgressEvent::Step {
-        worker_id,
-        step: 2,
-        message: Some("parsed TEI XML".to_owned()),
-    });
 
     Ok(document)
 }
@@ -386,15 +544,16 @@ async fn export_to_typedb(
     progress: &impl Progress,
     worker_id: usize,
 ) -> Result<(), Report> {
+    progress.report(ProgressEvent::Step {
+        worker_id,
+        step: 3,
+        message: Some("exporting domain models to TypeDB".to_owned()),
+    });
+
     typedb
         .export_queries(queries)
         .await
         .context("failed to export parsed domain models to TypeDB")?;
-    progress.report(ProgressEvent::Step {
-        worker_id,
-        step: 3,
-        message: Some("exported domain models to TypeDB".to_owned()),
-    });
 
     Ok(())
 }
@@ -465,15 +624,17 @@ pub fn duplicate_file_groups(pdf_files: &[PathBuf]) -> Result<Vec<DuplicateFileG
         .collect())
 }
 
-pub async fn write_duplicate_file_report(pdf_files: &[PathBuf]) -> Result<(), Report> {
-    let duplicate_groups = duplicate_file_groups(pdf_files)?;
-    let contents = serde_json::to_string_pretty(&duplicate_groups)
-        .context("failed to serialize duplicate PDF file report")?;
-    tokio::fs::write(DUPLICATES_PATH, format!("{contents}\n"))
-        .await
-        .context(format!(
-            "failed to write duplicate PDF file report `{DUPLICATES_PATH}`"
-        ))?;
+pub fn log_duplicate_files(
+    pdf_files: &[PathBuf],
+    known_failures: &KnownFailures,
+) -> Result<(), Report> {
+    for group in duplicate_file_groups(pdf_files)? {
+        let error = format!(
+            "PDF has duplicate files: {}",
+            group.original_file_names.join(", ")
+        );
+        known_failures.record(&group.hash, FailureCause::Duplicate, error)?;
+    }
     Ok(())
 }
 
@@ -532,17 +693,61 @@ mod tests {
 
         let failures = KnownFailures::load(&path).unwrap();
         let report = rootcause::report!("GROBID returned 400: malformed table");
-        let _ =
-            classify_failure(&failures, "hash", FailureCause::GrobidExtraction, report).unwrap();
+        let _ = classify_failure(&failures, "hash", FailureCause::TypeDbExport, report).unwrap();
 
         let stored: Vec<KnownFailure> =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(stored[0].cause, FailureCause::TypeDbExport);
         assert_eq!(
             stored[0].error.as_deref(),
             Some("GROBID returned 400: malformed table")
         );
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn fixed_failures_are_removed_from_known_failures_and_archived() {
+        let path = temporary_path();
+        let fixed_path = path.with_file_name(format!(
+            "scepa-fixed-failures-{}-{}.json",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&fixed_path);
+
+        let failures = KnownFailures::load_paths(path.clone(), fixed_path.clone()).unwrap();
+        failures
+            .record(
+                "hash",
+                FailureCause::TeiParsing,
+                "TEI parser failed".to_owned(),
+            )
+            .unwrap();
+
+        assert!(
+            failures
+                .mark_fixed("hash", FailureCause::TeiParsing)
+                .unwrap()
+        );
+        assert!(!failures.contains("hash", FailureCause::TeiParsing).unwrap());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "[]\n");
+
+        let fixed: Vec<KnownFailure> =
+            serde_json::from_str(&fs::read_to_string(&fixed_path).unwrap()).unwrap();
+        assert_eq!(fixed.len(), 1);
+        assert_eq!(fixed[0].hash, "hash");
+        assert_eq!(fixed[0].cause, FailureCause::TeiParsing);
+        assert_eq!(fixed[0].error.as_deref(), Some("TEI parser failed"));
+        assert!(
+            !failures
+                .mark_fixed("hash", FailureCause::TeiParsing)
+                .unwrap()
+        );
+
+        fs::remove_file(path).unwrap();
+        fs::remove_file(fixed_path).unwrap();
     }
 
     #[test]
@@ -594,6 +799,25 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn failed_pdfs_are_copied_for_retry() {
+        let root = std::env::temp_dir().join(format!(
+            "scepa-failed-pdfs-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let source = root.join("original-name.pdf");
+        let failed_directory = root.join("retry_pdfs");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&source, b"pdf").unwrap();
+
+        let failed_path = copy_failed_pdf(&source, &failed_directory).await.unwrap();
+
+        assert_eq!(failed_path, failed_directory.join("original-name.pdf"));
+        assert_eq!(fs::read(&failed_path).unwrap(), b"pdf");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn duplicate_file_groups_use_original_file_names() {
         let root = std::env::temp_dir().join(format!(
@@ -616,6 +840,35 @@ mod tests {
             groups[0].original_file_names,
             ["duplicate.pdf", "first.pdf"]
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn duplicate_files_are_logged_as_known_failures() {
+        let root = std::env::temp_dir().join(format!(
+            "scepa-duplicate-failures-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let first = root.join("first.pdf");
+        let duplicate = root.join("duplicate.pdf");
+        let known_failures_path = root.join("known_failures.json");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&first, b"same").unwrap();
+        fs::write(&duplicate, b"same").unwrap();
+
+        let known_failures = KnownFailures::load(&known_failures_path).unwrap();
+        log_duplicate_files(&[first, duplicate], &known_failures).unwrap();
+
+        let stored: Vec<KnownFailure> =
+            serde_json::from_str(&fs::read_to_string(&known_failures_path).unwrap()).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].cause, FailureCause::Duplicate);
+        assert_eq!(
+            stored[0].error.as_deref(),
+            Some("PDF has duplicate files: duplicate.pdf, first.pdf")
+        );
+
         fs::remove_dir_all(root).unwrap();
     }
 

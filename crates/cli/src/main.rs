@@ -21,6 +21,7 @@ mod progress;
 use progress::ProgressBar;
 
 const SOURCES_PATH: &str = "sources/pdfs";
+const RETRY_SOURCES_PATH: &str = "sources/retry_pdfs";
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -52,8 +53,11 @@ struct Env {
     #[arg(long, env = "TYPEDB_TLS", default_value_t = false)]
     typedb_tls: bool,
 
-    #[arg(long, env = "TYPEDB_WIPE_DATABASE", default_value_t = true)]
+    #[arg(long, env = "TYPEDB_WIPE_DATABASE", default_value_t = false)]
     typedb_wipe_database: bool,
+
+    #[arg(long, env = "RETRY", default_value_t = false)]
+    retry: bool,
 }
 
 impl TryFrom<Env> for Config {
@@ -86,6 +90,7 @@ fn main() -> Result<(), Report> {
         env.typedb_wipe_database,
     );
 
+    let retry = env.retry;
     let config = Config::try_from(env).context("Failed to create config from env")?;
 
     tokio::runtime::Builder::new_multi_thread()
@@ -93,13 +98,22 @@ fn main() -> Result<(), Report> {
         .enable_all()
         .build()
         .context("Failed to build Tokio runtime")?
-        .block_on(async_main(config, typedb_config))
+        .block_on(async_main(config, typedb_config, retry))
 }
 
-async fn async_main(config: Config, typedb_config: TypeDbConfig) -> Result<(), Report> {
-    let pdf_source_dir = PathBuf::from(SOURCES_PATH);
+async fn async_main(
+    config: Config,
+    typedb_config: TypeDbConfig,
+    retry: bool,
+) -> Result<(), Report> {
+    let pdf_source_dir = PathBuf::from(if retry {
+        RETRY_SOURCES_PATH
+    } else {
+        SOURCES_PATH
+    });
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
-    pipeline::write_duplicate_file_report(&pdf_paths).await?;
+    let known_failures = pipeline::KnownFailures::load_default()?;
+    pipeline::log_duplicate_files(&pdf_paths, &known_failures)?;
     let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
     let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
 
@@ -127,10 +141,10 @@ async fn async_main(config: Config, typedb_config: TypeDbConfig) -> Result<(), R
             pipeline::PARSED_FILES_ARTIFACTS_DIR,
         )),
         Arc::clone(&typedb),
-        pipeline::KnownFailures::load_default()?,
+        known_failures,
     );
 
-    let result = run_workers(Arc::new(config), pdf_paths, progress, sources).await;
+    let result = run_workers(Arc::new(config), pdf_paths, progress, sources, retry).await;
     if let Ok(typedb) = Arc::try_unwrap(typedb) {
         typedb.disconnect()?;
     }
@@ -142,6 +156,7 @@ async fn run_workers(
     pdf_paths: Vec<PathBuf>,
     progress: ProgressBar,
     sources: PipelineSources,
+    retry: bool,
 ) -> Result<(), Report> {
     let mut workers = Vec::with_capacity(config.worker_count);
 
@@ -155,6 +170,7 @@ async fn run_workers(
         let worker_config = Arc::clone(&config);
         let worker_progress = progress.clone();
         let worker_sources = sources.clone();
+        let worker_retry = retry;
 
         workers.push(tokio::spawn(async move {
             let mut worker_errors = Vec::new();
@@ -170,20 +186,38 @@ async fn run_workers(
                 )
                 .await;
 
-                if let Err(error) = result {
-                    if error.downcast_current_context::<ExpectedError>().is_some() {
-                        expected_failures += 1;
-                        continue;
+                match result {
+                    Ok(()) if worker_retry => {
+                        if let Err(error) = remove_retry_pdf(&pdf_path).await {
+                            let error = error.context(format!(
+                                "failed to remove successfully processed retry PDF `{}`",
+                                pdf_path.display()
+                            ));
+                            tracing::error!(
+                                pdf = %pdf_path.display(),
+                                worker_id,
+                                error = ?error,
+                                "retry PDF cleanup failed",
+                            );
+                            worker_errors.push(error);
+                        }
                     }
-                    let error =
-                        error.context(format!("failed to process PDF `{}`", pdf_path.display()));
-                    tracing::error!(
-                        pdf = %pdf_path.display(),
-                        worker_id,
-                        error = ?error,
-                        "pipeline failed",
-                    );
-                    worker_errors.push(error);
+                    Ok(()) => {}
+                    Err(error) => {
+                        if error.downcast_current_context::<ExpectedError>().is_some() {
+                            expected_failures += 1;
+                            continue;
+                        }
+                        let error = error
+                            .context(format!("failed to process PDF `{}`", pdf_path.display()));
+                        tracing::error!(
+                            pdf = %pdf_path.display(),
+                            worker_id,
+                            error = ?error,
+                            "pipeline failed",
+                        );
+                        worker_errors.push(error);
+                    }
                 }
             }
 
@@ -223,6 +257,14 @@ async fn run_workers(
     Err(failures
         .context(format!("{failure_count} pipeline failures"))
         .into())
+}
+
+async fn remove_retry_pdf(pdf_path: &Path) -> Result<(), Report> {
+    tokio::fs::remove_file(pdf_path).await.context(format!(
+        "failed to remove retry PDF `{}`",
+        pdf_path.display()
+    ))?;
+    Ok(())
 }
 
 fn collect_file_paths(dir: &Path) -> Result<Vec<PathBuf>, Report> {

@@ -40,6 +40,10 @@ pub enum FailureCause {
     GrobidExtraction,
     #[error("TEI parsing")]
     TeiParsing,
+    #[error("TypeDB export")]
+    TypeDbExport,
+    #[error("duplicate PDF")]
+    Duplicate,
 }
 
 #[derive(Debug, Error)]

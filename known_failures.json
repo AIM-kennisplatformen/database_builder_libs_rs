@@ -1,5 +1,10 @@
 [
   {
+    "hash": "02a92b9c9dc8a7003fd14c3363d78ad72c1b1e0d33cb1f4748a69d1e19871170",
+    "cause": "tei_parsing",
+    "error": "TEI parser failed\nmalformed ISSN: PRINT"
+  },
+  {
     "hash": "03ac3463ba24ef5b64521579e3f7bbfc8f5f751d1a8544b677fabda66af92ef2",
     "cause": "tei_parsing",
     "error": "TEI parser failed\nGROBID response contained no data that fits the domain model"
@@ -10,6 +15,11 @@
     "error": "TEI parser failed\nGROBID response contained no data that fits the domain model"
   },
   {
+    "hash": "5d5070d38b792462cccc1830d5c58083be229e048c4d7e3dfaea96b8625dbbe3",
+    "cause": "tei_parsing",
+    "error": "TEI parser failed\nmalformed ISSN: PRINT"
+  },
+  {
     "hash": "adabc2f5d57f6057482061cbcc8f52c8d69dd846077d6e5a062d3038eb354e7d",
     "cause": "grobid_extraction",
     "error": "failed to extract TEI XML from PDF `sources/pdfs/Z3XI2TWY.pdf`\nGROBID rejected the PDF\nGROBID returned 500 Internal Server Error: [NO_BLOCKS] PDF parsing resulted in empty content"
@@ -18,5 +28,20 @@
     "hash": "cdad183c63896ebc7186dc7bd75d6634ed3316d3951b755cf09a617f183c28f4",
     "cause": "grobid_extraction",
     "error": "failed to extract TEI XML from PDF `sources/pdfs/5XPGJDK9.pdf`\nGROBID rejected the PDF\nGROBID returned 500 Internal Server Error: [BAD_INPUT_DATA] PDF to XML conversion failed with error code: 134"
+  },
+  {
+    "hash": "d10f6434d6180ae82938a336c2b0f7a186e837227199fec315a3ed33772eef0a",
+    "cause": "tei_parsing",
+    "error": "TEI parser failed\nmalformed ISSN: 0003889"
+  },
+  {
+    "hash": "dbef21106306c34e627ec536814a3a8d986cad6146f641369b5e918272e10911",
+    "cause": "tei_parsing",
+    "error": "TEI parser failed\nmalformed ISSN: PRINT"
+  },
+  {
+    "hash": "e2f92d2b90bd083ee5e0010adce7c7b4704548801a11cf873776f74535ac684c",
+    "cause": "tei_parsing",
+    "error": "TEI parser failed\nmalformed ISSN: PRINT"
   }
 ]
