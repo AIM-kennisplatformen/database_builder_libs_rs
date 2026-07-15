@@ -1,5 +1,5 @@
 use chrono::{DateTime, FixedOffset, NaiveDate, TimeZone};
-use rootcause::prelude::Report;
+use rootcause::{prelude::Report, report};
 
 use crate::{
     domain::DocumentWithChunks,
@@ -69,6 +69,15 @@ fn parse_with_optional_pdf_hash(
     let acknowledgements = back.and_then(|node| back_matter(node, "acknowledgement"));
     let conflicts = back.and_then(|node| back_matter(node, "conflict"));
     let contributions = back.and_then(|node| back_matter(node, "contribution"));
+    let chunks = parse_chunks(
+        &root,
+        abstract_node,
+        body,
+        back,
+        acknowledgements.as_deref(),
+        conflicts.as_deref(),
+        contributions.as_deref(),
+    );
 
     let document = TypedbDocument::ResearchPaper(ResearchPaper {
         pdf_hash,
@@ -112,20 +121,48 @@ fn parse_with_optional_pdf_hash(
         ));
     }
 
+    let TypedbDocument::ResearchPaper(document_data) = &document else {
+        unreachable!("TEI parser creates research paper documents")
+    };
+    if !has_model_data(
+        document_data,
+        !people.is_empty(),
+        !relations.is_empty(),
+        &chunks,
+    ) {
+        return Err(report!(
+            "GROBID response contained no data that fits the domain model"
+        ));
+    }
+
     Ok(DocumentWithChunks {
         document,
         entities: people.into_iter().map(Entity::Person).collect(),
         relations,
-        chunks: parse_chunks(
-            &root,
-            abstract_node,
-            body,
-            back,
-            acknowledgements.as_deref(),
-            conflicts.as_deref(),
-            contributions.as_deref(),
-        ),
+        chunks,
     })
+}
+
+fn has_model_data(
+    document: &ResearchPaper,
+    has_people: bool,
+    has_relations: bool,
+    chunks: &[Chunk],
+) -> bool {
+    [
+        document.title.as_deref(),
+        document.doi.as_deref(),
+        document.abstract_text.as_deref(),
+        document.acknowledgements.as_deref(),
+        document.conflicts.as_deref(),
+        document.contributions.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.is_empty())
+        || has_people
+        || has_relations
+        || !chunks.is_empty()
 }
 
 fn parse_chunks(

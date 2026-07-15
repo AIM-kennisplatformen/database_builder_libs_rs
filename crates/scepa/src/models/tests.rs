@@ -402,3 +402,8 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
             .contains(", has pdf-hash \"paper-hash\"")
     );
 }
+
+#[test]
+fn tei_parser_rejects_responses_without_model_data() {
+    assert!(tei::parse_with_pdf_hash("<TEI/>", "paper-hash").is_err());
+}
