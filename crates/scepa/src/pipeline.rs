@@ -43,11 +43,10 @@ pub const FAILED_PDFS_DIR: &str = "sources/retry_pdfs";
 #[derive(Debug, Clone, Deserialize, Eq, Hash, Ord, PartialEq, Serialize, PartialOrd)]
 struct KnownFailure {
     hash: String,
+    /// The source file name is used to select files for a retry run.
+    original_file_name: String,
     cause: FailureCause,
-    /// The rendered error report is optional so entries written by older
-    /// versions remain readable.
-    #[serde(default)]
-    error: Option<String>,
+    error: String,
 }
 
 #[derive(Clone)]
@@ -132,27 +131,33 @@ impl KnownFailures {
             .any(|failure| failure.hash == hash && failure.cause == cause))
     }
 
-    fn record(&self, hash: &str, cause: FailureCause, error: String) -> Result<(), Report> {
+    fn record(
+        &self,
+        hash: &str,
+        original_file_name: &str,
+        cause: FailureCause,
+        error: String,
+    ) -> Result<(), Report> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| report!("known failures lock was poisoned"))?;
         let failure = KnownFailure {
             hash: hash.to_owned(),
+            original_file_name: original_file_name.to_owned(),
             cause,
-            error: Some(error),
+            error,
         };
 
-        // A failure is identified by its PDF and pipeline stage, not by the
-        // diagnostic text. This also lets us enrich entries created by an
-        // older version that did not persist the error.
+        // A failure is identified by its PDF, source file, and pipeline
+        // stage, not by the diagnostic text.
         if let Some(existing) = state
             .failures
             .iter()
             .find(|existing| existing.hash == hash && existing.cause == cause)
             .cloned()
         {
-            if existing.error.is_some() {
+            if existing.original_file_name == failure.original_file_name {
                 return Ok(());
             }
             state.failures.remove(&existing);
@@ -169,6 +174,19 @@ impl KnownFailures {
         ))?;
         state.failures.insert(failure);
         Ok(())
+    }
+
+    pub fn retry_file_names(&self) -> Result<HashSet<String>, Report> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| report!("known failures lock was poisoned"))?;
+        Ok(state
+            .failures
+            .iter()
+            .filter(|failure| failure.cause != FailureCause::Duplicate)
+            .map(|failure| failure.original_file_name.clone())
+            .collect())
     }
 
     fn mark_fixed(&self, hash: &str, cause: FailureCause) -> Result<bool, Report> {
@@ -229,15 +247,15 @@ fn hash_pdf_file(path: &Path) -> Result<String, Report> {
 fn classify_failure(
     known_failures: &KnownFailures,
     hash: &str,
+    original_file_name: &str,
     cause: FailureCause,
     report: Report,
 ) -> Result<Report, Report> {
     let error = format_failure(&report);
     if known_failures.contains(hash, cause)? {
-        // Older entries only contain the hash and stage. Preserve their
-        // expected-failure behaviour while filling in the diagnostic the
-        // next time the failure is observed.
-        if let Err(record_error) = known_failures.record(hash, cause, error.clone()) {
+        if let Err(record_error) =
+            known_failures.record(hash, original_file_name, cause, error.clone())
+        {
             tracing::error!(
                 hash,
                 cause = %cause,
@@ -261,7 +279,7 @@ fn classify_failure(
             .into());
     }
 
-    if let Err(record_error) = known_failures.record(hash, cause, error) {
+    if let Err(record_error) = known_failures.record(hash, original_file_name, cause, error) {
         tracing::error!(
             hash,
             cause = %cause,
@@ -311,6 +329,14 @@ pub async fn run(
     worker_id: usize,
     sources: PipelineSources,
 ) -> Result<(), Report> {
+    let original_file_name = pdf_file
+        .file_name()
+        .context(format!(
+            "failed to read file name for {}",
+            pdf_file.display()
+        ))?
+        .to_string_lossy()
+        .into_owned();
     let pdf_hash = match hash_pdf_file(pdf_file) {
         Ok(pdf_hash) => pdf_hash,
         Err(report) => {
@@ -363,6 +389,7 @@ pub async fn run(
                 return Err(classify_failure(
                     &sources.known_failures,
                     &pdf_hash,
+                    &original_file_name,
                     FailureCause::GrobidExtraction,
                     report,
                 )?);
@@ -385,6 +412,7 @@ pub async fn run(
                         return Err(classify_failure(
                             &sources.known_failures,
                             &pdf_hash,
+                            &original_file_name,
                             FailureCause::TeiParsing,
                             parse_report,
                         )?);
@@ -398,6 +426,7 @@ pub async fn run(
             return Err(classify_failure(
                 &sources.known_failures,
                 &pdf_hash,
+                &original_file_name,
                 FailureCause::TypeDbExport,
                 report,
             )?);
@@ -633,7 +662,16 @@ pub fn log_duplicate_files(
             "PDF has duplicate files: {}",
             group.original_file_names.join(", ")
         );
-        known_failures.record(&group.hash, FailureCause::Duplicate, error)?;
+        let original_file_name = group
+            .original_file_names
+            .first()
+            .context("duplicate PDF group has no file names")?;
+        known_failures.record(
+            &group.hash,
+            original_file_name,
+            FailureCause::Duplicate,
+            error,
+        )?;
     }
     Ok(())
 }
@@ -659,6 +697,7 @@ mod tests {
         failures
             .record(
                 "b",
+                "tei-failure.pdf",
                 FailureCause::TeiParsing,
                 "TEI parser failed".to_owned(),
             )
@@ -666,6 +705,7 @@ mod tests {
         failures
             .record(
                 "a",
+                "grobid-failure.pdf",
                 FailureCause::GrobidExtraction,
                 "GROBID returned 400: malformed table".to_owned(),
             )
@@ -673,7 +713,7 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
-            "[\n  {\n    \"hash\": \"a\",\n    \"cause\": \"grobid_extraction\",\n    \"error\": \"GROBID returned 400: malformed table\"\n  },\n  {\n    \"hash\": \"b\",\n    \"cause\": \"tei_parsing\",\n    \"error\": \"TEI parser failed\"\n  }\n]\n"
+            "[\n  {\n    \"hash\": \"a\",\n    \"original_file_name\": \"grobid-failure.pdf\",\n    \"cause\": \"grobid_extraction\",\n    \"error\": \"GROBID returned 400: malformed table\"\n  },\n  {\n    \"hash\": \"b\",\n    \"original_file_name\": \"tei-failure.pdf\",\n    \"cause\": \"tei_parsing\",\n    \"error\": \"TEI parser failed\"\n  }\n]\n"
         );
         let reloaded = KnownFailures::load(&path).unwrap();
         assert!(
@@ -693,14 +733,50 @@ mod tests {
 
         let failures = KnownFailures::load(&path).unwrap();
         let report = rootcause::report!("GROBID returned 400: malformed table");
-        let _ = classify_failure(&failures, "hash", FailureCause::TypeDbExport, report).unwrap();
+        let _ = classify_failure(
+            &failures,
+            "hash",
+            "type-db-failure.pdf",
+            FailureCause::TypeDbExport,
+            report,
+        )
+        .unwrap();
 
         let stored: Vec<KnownFailure> =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(stored[0].cause, FailureCause::TypeDbExport);
+        assert_eq!(stored[0].original_file_name, "type-db-failure.pdf");
+        assert_eq!(stored[0].error, "GROBID returned 400: malformed table");
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn retry_file_names_only_include_active_pipeline_failures() {
+        let path = temporary_path();
+        let _ = fs::remove_file(&path);
+
+        let failures = KnownFailures::load(&path).unwrap();
+        failures
+            .record(
+                "pipeline-hash",
+                "pipeline-failure.pdf",
+                FailureCause::TeiParsing,
+                "TEI parser failed".to_owned(),
+            )
+            .unwrap();
+        failures
+            .record(
+                "duplicate-hash",
+                "duplicate.pdf",
+                FailureCause::Duplicate,
+                "duplicate PDF".to_owned(),
+            )
+            .unwrap();
+
         assert_eq!(
-            stored[0].error.as_deref(),
-            Some("GROBID returned 400: malformed table")
+            failures.retry_file_names().unwrap(),
+            HashSet::from(["pipeline-failure.pdf".to_owned()])
         );
 
         fs::remove_file(path).unwrap();
@@ -721,6 +797,7 @@ mod tests {
         failures
             .record(
                 "hash",
+                "tei-failure.pdf",
                 FailureCause::TeiParsing,
                 "TEI parser failed".to_owned(),
             )
@@ -738,8 +815,9 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&fixed_path).unwrap()).unwrap();
         assert_eq!(fixed.len(), 1);
         assert_eq!(fixed[0].hash, "hash");
+        assert_eq!(fixed[0].original_file_name, "tei-failure.pdf");
         assert_eq!(fixed[0].cause, FailureCause::TeiParsing);
-        assert_eq!(fixed[0].error.as_deref(), Some("TEI parser failed"));
+        assert_eq!(fixed[0].error, "TEI parser failed");
         assert!(
             !failures
                 .mark_fixed("hash", FailureCause::TeiParsing)
@@ -864,9 +942,10 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&known_failures_path).unwrap()).unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].cause, FailureCause::Duplicate);
+        assert_eq!(stored[0].original_file_name, "duplicate.pdf");
         assert_eq!(
-            stored[0].error.as_deref(),
-            Some("PDF has duplicate files: duplicate.pdf, first.pdf")
+            stored[0].error,
+            "PDF has duplicate files: duplicate.pdf, first.pdf"
         );
 
         fs::remove_dir_all(root).unwrap();

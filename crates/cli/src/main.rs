@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -110,13 +111,18 @@ async fn async_main(
         clear_retry_pdfs(Path::new(RETRY_SOURCES_PATH))?;
     }
 
+    let known_failures = pipeline::KnownFailures::load_default()?;
     let pdf_source_dir = PathBuf::from(if retry {
         RETRY_SOURCES_PATH
     } else {
         SOURCES_PATH
     });
     let pdf_paths = collect_file_paths(&pdf_source_dir)?;
-    let known_failures = pipeline::KnownFailures::load_default()?;
+    let pdf_paths = if retry {
+        filter_retry_paths(pdf_paths, &known_failures.retry_file_names()?)
+    } else {
+        pdf_paths
+    };
     pipeline::log_duplicate_files(&pdf_paths, &known_failures)?;
     let progress = ProgressBar::new(pdf_paths.len(), config.worker_count);
     let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
@@ -326,4 +332,17 @@ fn collect_file_paths(dir: &Path) -> Result<Vec<PathBuf>, Report> {
 
     paths.sort();
     Ok(paths)
+}
+
+fn filter_retry_paths(paths: Vec<PathBuf>, retry_file_names: &HashSet<String>) -> Vec<PathBuf> {
+    paths
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .map(|file_name| {
+                    retry_file_names.contains(&file_name.to_string_lossy().into_owned())
+                })
+                .unwrap_or(false)
+        })
+        .collect()
 }
