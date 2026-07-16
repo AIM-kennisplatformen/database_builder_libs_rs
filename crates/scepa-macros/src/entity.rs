@@ -23,7 +23,7 @@ pub(crate) fn generate_impl(
             let metadata = entity_metadata(&item_struct.fields)?;
             let type_ident = &item_struct.ident;
             Ok(quote! {
-                impl crate::models::entities::TypeDbEntity for #type_ident {
+                impl crate::models::TypeDbEntity for #type_ident {
                     fn typeql_type(&self) -> &'static str {
                         #name
                     }

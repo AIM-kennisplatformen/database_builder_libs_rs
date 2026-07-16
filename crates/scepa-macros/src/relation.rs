@@ -19,7 +19,7 @@ pub(crate) fn generate_impl(
             let (role_statements, attribute_statements) = relation_fields(&item_struct.fields)?;
             let type_ident = &item_struct.ident;
             Ok(quote! {
-                impl crate::models::relations::TypeDbRelation for #type_ident {
+                impl crate::models::TypeDbRelation for #type_ident {
                     fn typeql_insert_statement(&self) -> String {
                         let mut query = String::from("match\n");
                         let mut roles: Vec<String> = Vec::new();

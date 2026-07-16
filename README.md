@@ -1,5 +1,22 @@
 # SCEPA services
 
+## Generating TypeDB models
+
+The `typedb_schema!` procedural macro reads a TypeQL schema at compile time and
+generates Rust entity and relation models with the existing TypeDB query
+implementations:
+
+```rust
+mod generated {
+    use crate::models::typedb_schema;
+    typedb_schema!("../../domain.tql");
+}
+```
+
+The path is resolved relative to the consuming crate's `CARGO_MANIFEST_DIR`.
+Entity inheritance, owned attributes, relation roles, role aliases, and
+`@card(1)` cardinality are reflected in the generated types.
+
 The services in [`docker-compose.yml`](docker-compose.yml) are grouped into two
 profiles:
 

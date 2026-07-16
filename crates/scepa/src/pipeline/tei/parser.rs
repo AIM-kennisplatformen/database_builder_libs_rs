@@ -6,21 +6,12 @@ use crate::{
     identity::{self, DocumentKind},
     models::{
         chunk::{Abstract, Chunk, Figure, Image, Text},
-        entities::{
-            Entity,
-            document::{Document as TypedbDocument, ResearchPaper},
-            institution::{Institution, InstitutionEntity},
-            person::{Person, PersonEntity},
-            publication_venue::{Journal, PublicationVenue},
-        },
-        relations::{
-            Relation,
-            citation::Citation,
-            contribution::{Authorship, Contribution, Work as ContributionWork},
-            publication_event::{
-                Acceptance, PublicationEventRelation, Submission, Venue as PublicationVenueRole,
-                Work as PublicationWork,
-            },
+        generated::{
+            Acceptance, Authorship, Citation, Cited, Citing, Contribution,
+            Document as TypedbDocument, Entity, Institution, InstitutionEntity, Journal, Person,
+            PersonEntity, PublicationEventRelation, PublicationVenue, Relation, ResearchPaper,
+            Submission, Venue as PublicationVenueRole, Work as ContributionWork,
+            Work as PublicationWork,
         },
     },
 };
@@ -149,11 +140,11 @@ fn parse_with_optional_pdf_hash(
             .cloned()
             .unwrap_or_else(|| format!("reference-{index}"));
         let cited = cited_document(reference, &document_id, &reference_id)?;
-        let cited_work = contribution_work(&cited);
+        let cited_role = citation_cited(&cited);
         entities.push(Entity::Document(cited));
         relations.push(Relation::Citation(Citation {
-            citing: contribution_work(&document),
-            cited: cited_work,
+            citing: citation_citing(&document),
+            cited: cited_role,
         }));
     }
 
@@ -417,7 +408,7 @@ fn publication_venue(
         .unwrap_or_default();
     if kind.eq_ignore_ascii_case("conference") {
         Ok(Some(PublicationVenue::Conference(
-            crate::models::entities::publication_venue::Conference {
+            crate::models::generated::Conference {
                 entity_id,
                 venue_name,
                 issn,
@@ -478,19 +469,17 @@ fn cited_document(
             Some(reference_id),
         )
         .map_err(|error| report!("{error}"))?;
-        Ok(TypedbDocument::Book(
-            crate::models::entities::document::Book {
-                entity_id,
-                pdf_hash: None,
-                title,
-                abstract_text: None,
-                acknowledgements: None,
-                conflicts: None,
-                contributions: None,
-                isbn,
-                issn,
-            },
-        ))
+        Ok(TypedbDocument::Book(crate::models::generated::Book {
+            entity_id,
+            pdf_hash: None,
+            title,
+            abstract_text: None,
+            acknowledgements: None,
+            conflicts: None,
+            contributions: None,
+            isbn,
+            issn,
+        }))
     } else if kind.eq_ignore_ascii_case("report") {
         let entity_id = identity::document_id(
             DocumentKind::Report,
@@ -500,17 +489,15 @@ fn cited_document(
             Some(reference_id),
         )
         .map_err(|error| report!("{error}"))?;
-        Ok(TypedbDocument::Report(
-            crate::models::entities::document::Report {
-                entity_id,
-                pdf_hash: None,
-                title,
-                abstract_text: None,
-                acknowledgements: None,
-                conflicts: None,
-                contributions: None,
-            },
-        ))
+        Ok(TypedbDocument::Report(crate::models::generated::Report {
+            entity_id,
+            pdf_hash: None,
+            title,
+            abstract_text: None,
+            acknowledgements: None,
+            conflicts: None,
+            contributions: None,
+        }))
     } else {
         let entity_id = identity::document_id(
             DocumentKind::ResearchPaper,
@@ -542,6 +529,22 @@ fn contribution_work(document: &TypedbDocument) -> Box<dyn ContributionWork> {
 }
 
 fn publication_work(document: &TypedbDocument) -> Box<dyn PublicationWork> {
+    match document {
+        TypedbDocument::Book(document) => Box::new(document.clone()),
+        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
+        TypedbDocument::Report(document) => Box::new(document.clone()),
+    }
+}
+
+fn citation_citing(document: &TypedbDocument) -> Box<dyn Citing> {
+    match document {
+        TypedbDocument::Book(document) => Box::new(document.clone()),
+        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
+        TypedbDocument::Report(document) => Box::new(document.clone()),
+    }
+}
+
+fn citation_cited(document: &TypedbDocument) -> Box<dyn Cited> {
     match document {
         TypedbDocument::Book(document) => Box::new(document.clone()),
         TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),

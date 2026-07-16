@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::{
-    chunk::Chunk,
-    entities::{Entity, document::Document},
-    relations::Relation,
-};
+use crate::models::{Document, Entity, Relation, chunk::Chunk};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DocumentWithChunks {

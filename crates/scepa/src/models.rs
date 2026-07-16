@@ -4,12 +4,25 @@ use serde::{
 };
 use serde_json::Value;
 
+pub use scepa_macros::typedb_schema;
 #[allow(unused_imports)]
 use scepa_macros::{typedb_entity, typedb_model, typedb_relation, typedb_relation_role};
 
+pub trait TypeDbEntity {
+    fn typeql_type(&self) -> &'static str;
+    fn entity_id(&self) -> &str;
+    fn typeql_identity_pattern(&self, variable: &str) -> String;
+    fn typeql_metadata_statements(&self) -> Vec<String>;
+    fn typeql_insert_statement(&self, variable: &str) -> String;
+}
+
+pub(crate) trait TypeDbRelation {
+    fn typeql_insert_statement(&self) -> String;
+}
+
 pub mod chunk;
-pub mod entities;
-pub mod relations;
+pub mod generated;
+pub use generated::*;
 
 #[cfg(test)]
 mod tests;

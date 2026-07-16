@@ -2,18 +2,14 @@ use chrono::DateTime;
 use serde_json::json;
 
 use super::chunk::Chunk;
-use super::entities::{
-    Entity, TypeDbEntity,
-    document::{Book, Document, ResearchPaper},
-    institution::{EducationInstitution, Institution, InstitutionEntity},
-    person::{Person, PersonEntity},
-    publication_venue::{Conference, Journal, PublicationVenue},
-};
-use super::relations::{
-    Relation, TypeDbRelation,
-    citation::Citation,
-    contribution::{Authorship, BaseContribution, Contribution, PeerReview},
-    publication_event::{Publication, PublicationEventRelation, Submission},
+use super::{
+    TypeDbEntity, TypeDbRelation,
+    generated::{
+        Authorship, BaseContribution, Book, Citation, Conference, Contribution, Document,
+        EducationInstitution, Entity, Institution, InstitutionEntity, Journal, PeerReview, Person,
+        PersonEntity, Publication, PublicationEventRelation, PublicationVenue, Relation,
+        ResearchPaper, Submission,
+    },
 };
 use crate::pipeline::tei;
 

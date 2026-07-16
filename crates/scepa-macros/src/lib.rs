@@ -4,6 +4,7 @@ mod delegation;
 mod entity;
 mod relation;
 mod role;
+mod schema;
 mod utils;
 
 use proc_macro::TokenStream;
@@ -69,4 +70,14 @@ pub fn typedb_relation(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn typedb_relation_role(attr: TokenStream, item: TokenStream) -> TokenStream {
     role::expand(attr, item)
+}
+
+/// Generate Rust TypeDB models from a TypeQL schema file.
+#[proc_macro]
+pub fn typedb_schema(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as syn::LitStr);
+    match schema::expand(&path) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
 }

@@ -47,35 +47,35 @@ pub(crate) fn generate_enum_delegation_from_data(
         let query_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::entities::TypeDbEntity>::typeql_type(value),
+                    <_ as crate::models::TypeDbEntity>::typeql_type(value),
             }
         });
         let id_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::entities::TypeDbEntity>::entity_id(value),
+                    <_ as crate::models::TypeDbEntity>::entity_id(value),
             }
         });
         let identity_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::entities::TypeDbEntity>::typeql_identity_pattern(value, variable),
+                    <_ as crate::models::TypeDbEntity>::typeql_identity_pattern(value, variable),
             }
         });
         let metadata_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::entities::TypeDbEntity>::typeql_metadata_statements(value),
+                    <_ as crate::models::TypeDbEntity>::typeql_metadata_statements(value),
             }
         });
         let insert_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::entities::TypeDbEntity>::typeql_insert_statement(value, variable),
+                    <_ as crate::models::TypeDbEntity>::typeql_insert_statement(value, variable),
             }
         });
         quote! {
-            impl crate::models::entities::TypeDbEntity for #ident {
+            impl crate::models::TypeDbEntity for #ident {
                 fn typeql_type(&self) -> &'static str {
                     match self {
                         #(#query_arms)*
@@ -111,11 +111,11 @@ pub(crate) fn generate_enum_delegation_from_data(
         let query_arms = variant_idents.iter().map(|variant_ident| {
             quote! {
                 Self::#variant_ident(value) =>
-                    <_ as crate::models::relations::TypeDbRelation>::typeql_insert_statement(value),
+                    <_ as crate::models::TypeDbRelation>::typeql_insert_statement(value),
             }
         });
         quote! {
-            impl crate::models::relations::TypeDbRelation for #ident {
+            impl crate::models::TypeDbRelation for #ident {
                 fn typeql_insert_statement(&self) -> String {
                     match self {
                         #(#query_arms)*

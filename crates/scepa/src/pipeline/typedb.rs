@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     domain::DocumentWithChunks,
-    models::{entities::TypeDbEntity, relations::TypeDbRelation},
+    models::{TypeDbEntity, TypeDbRelation},
 };
 
 pub fn typeql_queries(document: &DocumentWithChunks) -> Vec<String> {
