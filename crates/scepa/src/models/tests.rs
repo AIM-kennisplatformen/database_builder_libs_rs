@@ -5,7 +5,7 @@ use super::chunk::Chunk;
 use super::{
     TypeDbEntity, TypeDbRelation,
     generated::{
-        Authorship, BaseContribution, Book, Citation, Conference, Contribution, Document,
+        Authorship, BaseContribution, Book, Conference, Contribution, Document,
         EducationInstitution, Entity, Institution, InstitutionEntity, Journal, PeerReview, Person,
         PersonEntity, Publication, PublicationEventRelation, PublicationVenue, Relation,
         ResearchPaper, Submission,
@@ -21,9 +21,6 @@ fn document_serializes_to_its_deserialization_envelope() {
         title: None,
         doi: Some("10.1038/s41586-020-2649-2".to_owned()),
         abstract_text: None,
-        acknowledgements: None,
-        conflicts: None,
-        contributions: None,
     });
 
     let serialized = serde_json::to_value(&document).unwrap();
@@ -133,9 +130,6 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
             abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
         })),
     };
     let peer_review = PeerReview {
@@ -150,9 +144,6 @@ fn authorship_and_peer_review_serialize_trait_object_participants() {
             pdf_hash: None,
             title: None,
             abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
             isbn: Some("978-0-123456-47-3".to_owned()),
             issn: None,
         })),
@@ -219,9 +210,6 @@ fn publication_uses_trait_object_entity_participants() {
             title: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
             abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
         }),
         version_number: Some("version-of-record".to_owned()),
         publication_date: Some(DateTime::parse_from_rfc3339("2020-08-26T00:00:00Z").unwrap()),
@@ -256,9 +244,6 @@ fn publication_event_subtypes_carry_their_schema_type() {
             pdf_hash: None,
             title: None,
             abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
             doi: Some("10.1038/s41586-020-2649-2".to_owned()),
         }),
         submission_date: Some(DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap()),
@@ -402,7 +387,7 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
     assert!(matches!(&model.relations[0], Relation::Contribution(_)));
     assert!(matches!(&model.relations[1], Relation::PublicationEvent(_)));
     assert!(matches!(&model.relations[2], Relation::PublicationEvent(_)));
-    assert_eq!(model.chunks.len(), 4);
+    assert_eq!(model.chunks.len(), 3);
     assert!(matches!(
         &model.chunks[0],
         Chunk::Abstract(abstract_chunk) if abstract_chunk.index == 0
@@ -416,7 +401,7 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
             && text_chunk.document_hash.is_empty()
     ));
     assert!(matches!(
-        &model.chunks[3],
+        &model.chunks[2],
         Chunk::Text(text_chunk) if text_chunk.document_hash.is_empty()
     ));
 
@@ -451,7 +436,7 @@ fn tei_parser_builds_type_db_entities_and_chunks_directly() {
 }
 
 #[test]
-fn tei_parser_extracts_citations_from_back_matter() {
+fn tei_parser_ignores_unsupported_citations_from_back_matter() {
     let model = tei::parse_with_pdf_hash(
         r#"
         <TEI>
@@ -485,36 +470,8 @@ fn tei_parser_extracts_citations_from_back_matter() {
     )
     .unwrap();
 
-    assert_eq!(model.entities.len(), 2);
-    assert!(matches!(
-        &model.entities[0],
-        Entity::Document(Document::ResearchPaper(ResearchPaper {
-            title: Some(title),
-            doi: Some(doi),
-            ..
-        })) if title == "A cited paper" && doi == "10.1234/cited"
-    ));
-    assert!(matches!(
-        &model.entities[1],
-        Entity::Document(Document::Book(Book {
-            title: Some(title),
-            isbn: Some(isbn),
-            ..
-        })) if title == "A cited book" && isbn == "9780306406157"
-    ));
-
-    assert_eq!(model.relations.len(), 2);
-    for relation in &model.relations {
-        let Relation::Citation(Citation { citing, cited }) = relation else {
-            panic!("expected citation relation");
-        };
-        let citing_value = serde_json::to_value(citing).unwrap();
-        assert_eq!(
-            citing_value["title"], "A citing paper",
-            "serialized citing work: {citing_value}"
-        );
-        assert!(serde_json::to_value(cited).unwrap().is_object());
-    }
+    assert!(model.entities.is_empty());
+    assert!(model.relations.is_empty());
 }
 
 #[test]

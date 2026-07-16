@@ -38,15 +38,10 @@ entity document @abstract,
     owns entity-id @key,
     owns title,
     owns abstract-text,
-    owns acknowledgements,
-    owns conflicts,
-    owns contributions,
     owns pdf-hash,
     plays contribution:work,
     plays authorship:authored-work,
     plays peer-review:reviewed-work,
-    plays citation:citing,
-    plays citation:cited,
     plays publication-event:work;
 
 entity research-paper sub document,
@@ -99,14 +94,6 @@ relation authorship sub contribution,
 relation peer-review sub contribution,
     relates reviewer as contributor,
     relates reviewed-work as work;
-
-# --- References and citations ---
-# A citation is a directed reference from the citing document to the cited
-# document. References that cannot yet be resolved can still be represented by
-# a document with whatever bibliographic metadata is available.
-relation citation,
-    relates citing @card(1),
-    relates cited @card(1);
 
 # --- The Publishing Lifecycle ---
 relation publication-event @abstract,

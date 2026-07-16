@@ -106,29 +106,15 @@ mod tests {
         assert_eq!(
             queries
                 .iter()
-                .take(2)
                 .filter(|query| query.starts_with("put $entity isa "))
                 .count(),
-            2
+            1
         );
-        assert!(queries.iter().any(|query| {
-            query.contains("not { $entity has title $_; }")
-                && query.contains("insert\n  $entity has title")
-        }));
         assert!(
             queries
                 .iter()
                 .any(|query| { query.contains("update\n  $entity has title \"Paper B\";") })
         );
-        assert!(queries.iter().any(|query| {
-            query.contains("match\n  $role_0 isa research-paper, has entity-id")
-                && query.contains("$role_1 isa research-paper, has entity-id")
-        }));
-        assert!(
-            !queries
-                .iter()
-                .take(2)
-                .any(|query| query.contains("has doi"))
-        );
+        assert!(!queries.iter().any(|query| query.contains("isa citation")));
     }
 }

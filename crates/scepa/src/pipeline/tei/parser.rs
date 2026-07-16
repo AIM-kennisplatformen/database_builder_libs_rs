@@ -7,11 +7,10 @@ use crate::{
     models::{
         chunk::{Abstract, Chunk, Figure, Image, Text},
         generated::{
-            Acceptance, Authorship, Citation, Cited, Citing, Contribution,
-            Document as TypedbDocument, Entity, Institution, InstitutionEntity, Journal, Person,
-            PersonEntity, PublicationEventRelation, PublicationVenue, Relation, ResearchPaper,
-            Submission, Venue as PublicationVenueRole, Work as ContributionWork,
-            Work as PublicationWork,
+            Acceptance, Authorship, Contribution, Document as TypedbDocument, Entity, Institution,
+            InstitutionEntity, Journal, Person, PersonEntity, PublicationEventRelation,
+            PublicationVenue, Relation, ResearchPaper, Submission, Venue as PublicationVenueRole,
+            Work as ContributionWork, Work as PublicationWork,
         },
     },
 };
@@ -81,18 +80,7 @@ fn parse_with_optional_pdf_hash(
         .unwrap_or_default();
     let (submission_date, acceptance_date, submission_note) =
         source.map(article_dates).unwrap_or_default();
-    let acknowledgements = back.and_then(|node| back_matter(node, "acknowledgement"));
-    let conflicts = back.and_then(|node| back_matter(node, "conflict"));
-    let contributions = back.and_then(|node| back_matter(node, "contribution"));
-    let chunks = parse_chunks(
-        &root,
-        abstract_node,
-        body,
-        back,
-        acknowledgements.as_deref(),
-        conflicts.as_deref(),
-        contributions.as_deref(),
-    );
+    let chunks = parse_chunks(&root, abstract_node, body, back);
 
     let document = TypedbDocument::ResearchPaper(ResearchPaper {
         entity_id: document_id.clone(),
@@ -100,9 +88,6 @@ fn parse_with_optional_pdf_hash(
         title,
         doi,
         abstract_text: abstract_text.clone(),
-        acknowledgements: acknowledgements.clone(),
-        conflicts: conflicts.clone(),
-        contributions: contributions.clone(),
     });
 
     let venue = source
@@ -129,25 +114,6 @@ fn parse_with_optional_pdf_hash(
         })
         .collect::<Vec<_>>();
     let has_people = !people.is_empty();
-    for (index, reference) in back
-        .into_iter()
-        .flat_map(|node| node.descendants_named("biblStruct"))
-        .enumerate()
-    {
-        let reference_id = reference
-            .attributes
-            .get("id")
-            .cloned()
-            .unwrap_or_else(|| format!("reference-{index}"));
-        let cited = cited_document(reference, &document_id, &reference_id)?;
-        let cited_role = citation_cited(&cited);
-        entities.push(Entity::Document(cited));
-        relations.push(Relation::Citation(Citation {
-            citing: citation_citing(&document),
-            cited: cited_role,
-        }));
-    }
-
     if submission_date.is_some() || submission_note.is_some() {
         relations.push(Relation::PublicationEvent(
             PublicationEventRelation::Submission(Submission {
@@ -197,9 +163,6 @@ fn has_model_data(
         document.title.as_deref(),
         document.doi.as_deref(),
         document.abstract_text.as_deref(),
-        document.acknowledgements.as_deref(),
-        document.conflicts.as_deref(),
-        document.contributions.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -214,9 +177,6 @@ fn parse_chunks(
     abstract_node: Option<&Node>,
     body: Option<&Node>,
     back: Option<&Node>,
-    acknowledgements: Option<&str>,
-    conflicts: Option<&str>,
-    contributions: Option<&str>,
 ) -> Vec<Chunk> {
     let mut chunks = Vec::new();
 
@@ -244,12 +204,6 @@ fn parse_chunks(
                     push_text_chunk(&mut chunks, heading.as_deref(), &paragraph);
                 }
             }
-        }
-    }
-
-    for value in [acknowledgements, conflicts, contributions] {
-        if let Some(value) = value.filter(|value| !value.is_empty()) {
-            push_text_chunk(&mut chunks, None, value);
         }
     }
 
@@ -430,96 +384,6 @@ fn venue_value(venue: &PublicationVenue) -> Box<dyn PublicationVenueRole> {
     }
 }
 
-fn cited_document(
-    reference: &Node,
-    source_document_id: &str,
-    reference_id: &str,
-) -> Result<TypedbDocument, Report> {
-    let analytic = child(reference, "analytic");
-    let monograph = child(reference, "monogr");
-    let title = analytic
-        .and_then(|node| child(node, "title"))
-        .or_else(|| monograph.and_then(|node| child(node, "title")))
-        .map(text)
-        .filter(|value| !value.is_empty());
-    let doi = identifier(reference, "DOI")
-        .map(|value| identity::normalize_doi(&value))
-        .transpose()
-        .map_err(|error| report!("{error}"))?;
-    let isbn = identifier(reference, "ISBN")
-        .map(|value| identity::normalize_isbn(&value))
-        .transpose()
-        .map_err(|error| report!("{error}"))?;
-    let issn = identifier(reference, "ISSN")
-        .map(|value| identity::normalize_issn(&value))
-        .transpose()
-        .map_err(|error| report!("{error}"))?;
-    let kind = reference
-        .attributes
-        .get("type")
-        .map(String::as_str)
-        .unwrap_or_default();
-
-    if kind.eq_ignore_ascii_case("book") || (analytic.is_none() && isbn.is_some()) {
-        let entity_id = identity::document_id(
-            DocumentKind::Book,
-            isbn.as_deref(),
-            None,
-            Some(source_document_id),
-            Some(reference_id),
-        )
-        .map_err(|error| report!("{error}"))?;
-        Ok(TypedbDocument::Book(crate::models::generated::Book {
-            entity_id,
-            pdf_hash: None,
-            title,
-            abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
-            isbn,
-            issn,
-        }))
-    } else if kind.eq_ignore_ascii_case("report") {
-        let entity_id = identity::document_id(
-            DocumentKind::Report,
-            None,
-            None,
-            Some(source_document_id),
-            Some(reference_id),
-        )
-        .map_err(|error| report!("{error}"))?;
-        Ok(TypedbDocument::Report(crate::models::generated::Report {
-            entity_id,
-            pdf_hash: None,
-            title,
-            abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
-        }))
-    } else {
-        let entity_id = identity::document_id(
-            DocumentKind::ResearchPaper,
-            doi.as_deref(),
-            None,
-            Some(source_document_id),
-            Some(reference_id),
-        )
-        .map_err(|error| report!("{error}"))?;
-        Ok(TypedbDocument::ResearchPaper(ResearchPaper {
-            entity_id,
-            pdf_hash: None,
-            title,
-            abstract_text: None,
-            acknowledgements: None,
-            conflicts: None,
-            contributions: None,
-            doi,
-        }))
-    }
-}
-
 fn contribution_work(document: &TypedbDocument) -> Box<dyn ContributionWork> {
     match document {
         TypedbDocument::Book(document) => Box::new(document.clone()),
@@ -529,22 +393,6 @@ fn contribution_work(document: &TypedbDocument) -> Box<dyn ContributionWork> {
 }
 
 fn publication_work(document: &TypedbDocument) -> Box<dyn PublicationWork> {
-    match document {
-        TypedbDocument::Book(document) => Box::new(document.clone()),
-        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
-        TypedbDocument::Report(document) => Box::new(document.clone()),
-    }
-}
-
-fn citation_citing(document: &TypedbDocument) -> Box<dyn Citing> {
-    match document {
-        TypedbDocument::Book(document) => Box::new(document.clone()),
-        TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
-        TypedbDocument::Report(document) => Box::new(document.clone()),
-    }
-}
-
-fn citation_cited(document: &TypedbDocument) -> Box<dyn Cited> {
     match document {
         TypedbDocument::Book(document) => Box::new(document.clone()),
         TypedbDocument::ResearchPaper(document) => Box::new(document.clone()),
@@ -609,12 +457,4 @@ fn parse_datetime(value: &str) -> Option<DateTime<FixedOffset>> {
             .from_local_datetime(&datetime)
             .single()
     })
-}
-
-fn back_matter(back: &Node, kind: &str) -> Option<String> {
-    children_named(back, "div")
-        .into_iter()
-        .find(|div| div.attributes.get("type").map(String::as_str) == Some(kind))
-        .map(text)
-        .filter(|value| !value.is_empty())
 }

@@ -36,12 +36,6 @@
     "error": "failed to extract TEI XML from PDF `sources/pdfs/5XPGJDK9.pdf`\nGROBID rejected the PDF\nGROBID returned 500 Internal Server Error: [BAD_INPUT_DATA] PDF to XML conversion failed with error code: 134"
   },
   {
-    "hash": "d10f6434d6180ae82938a336c2b0f7a186e837227199fec315a3ed33772eef0a",
-    "original_file_name": "5JDH2FK4.pdf",
-    "cause": "tei_parsing",
-    "error": "TEI parser failed\nmalformed ISSN: 0003889"
-  },
-  {
     "hash": "dbef21106306c34e627ec536814a3a8d986cad6146f641369b5e918272e10911",
     "original_file_name": "7ZUXXEF7.pdf",
     "cause": "tei_parsing",
