@@ -1,0 +1,7 @@
+{
+	"recommendations": [
+		"pucelle.run-on-save",
+		"rust-lang.rust-analyzer",
+		"tamasfe.even-better-toml"
+	]
+}

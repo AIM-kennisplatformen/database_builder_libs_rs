@@ -1,0 +1,9 @@
+{
+	"runOnSave.commands": [
+	{
+		"match": "\\.tql$",
+		"command": "rust-analyzer.runFlycheck", 
+		"runIn": "vscode"
+	}
+	]
+}
